@@ -18,14 +18,19 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.UIManager;
 import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -38,6 +43,14 @@ public final class LauncherFrame extends JFrame {
     private final InternalApiClient apiClient;
     private final Runnable onClose;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    // Paleta de colores
+    private static final Color PRIMARY_COLOR = new Color(25, 118, 210);
+    private static final Color SECONDARY_COLOR = new Color(56, 142, 60);
+    private static final Color ACCENT_COLOR = new Color(255, 111, 0);
+    private static final Color BG_COLOR = new Color(240, 240, 240);
+    private static final Color DARK_BG = new Color(50, 50, 50);
+    private static final Color TEXT_COLOR = new Color(30, 30, 30);
 
     private final DefaultListModel<MinecraftProfile> profilesModel = new DefaultListModel<>();
     private final JList<MinecraftProfile> profilesList = new JList<>(profilesModel);
@@ -54,9 +67,10 @@ public final class LauncherFrame extends JFrame {
     private final JTextArea outputArea = new JTextArea(8, 40);
 
     public LauncherFrame(InternalApiClient apiClient, int apiPort, Runnable onClose) {
-        super("Froshy Launcher - API " + apiPort);
+        super("Froshy Launcher - v1.0");
         this.apiClient = apiClient;
         this.onClose = onClose;
+        setPreferredSize(new Dimension(1200, 700));
         initUi();
         refreshProfiles();
         refreshHealth();
@@ -64,74 +78,33 @@ public final class LauncherFrame extends JFrame {
 
     private void initUi() {
         setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-        setSize(980, 600);
+        setSize(1200, 700);
         setLocationRelativeTo(null);
+
+        // Configurar tema
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            // Ignorar errores de tema
+        }
 
         profilesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         profilesList.setCellRenderer(new ProfileCellRenderer());
         outputArea.setEditable(false);
+        outputArea.setFont(new Font("Monospaced", Font.PLAIN, 11));
 
-        JButton refreshButton = new JButton("Refrescar perfiles");
-        refreshButton.addActionListener(e -> refreshProfiles());
+        // Configurar barra de progreso
+        progressBar.setStringPainted(true);
+        progressBar.setFont(new Font("Arial", Font.BOLD, 12));
 
-        JButton createButton = new JButton("Crear perfil");
-        createButton.addActionListener(e -> createProfile());
+        // Panel principal con pestañas
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.addTab("Perfiles", createProfilesPanel());
+        tabbedPane.addTab("Configuración", createConfigPanel());
+        tabbedPane.addTab("Descargas", createDownloadsPanel());
+        tabbedPane.addTab("Consola", createConsolePanel());
 
-        JButton launchButton = new JButton("Launch");
-        launchButton.addActionListener(e -> launchSelectedProfile());
-
-        JButton downloadButton = new JButton("Descargar");
-        downloadButton.addActionListener(e -> startDownload());
-
-        JButton healthButton = new JButton("Health");
-        healthButton.addActionListener(e -> refreshHealth());
-
-        JPanel leftPanel = new JPanel(new BorderLayout(8, 8));
-        leftPanel.setBorder(BorderFactory.createTitledBorder("Perfiles"));
-        leftPanel.add(new JScrollPane(profilesList), BorderLayout.CENTER);
-        leftPanel.add(refreshButton, BorderLayout.SOUTH);
-
-        JPanel formPanel = new JPanel(new GridLayout(0, 2, 8, 8));
-        formPanel.setBorder(BorderFactory.createTitledBorder("Nuevo perfil"));
-        formPanel.add(new JLabel("ID"));
-        formPanel.add(idField);
-        formPanel.add(new JLabel("Nombre"));
-        formPanel.add(nameField);
-        formPanel.add(new JLabel("Version"));
-        formPanel.add(versionField);
-        formPanel.add(new JLabel("Java"));
-        formPanel.add(javaField);
-        formPanel.add(new JLabel("JVM args"));
-        formPanel.add(jvmArgsField);
-        formPanel.add(new JLabel("Game args"));
-        formPanel.add(gameArgsField);
-
-        JPanel actionsPanel = new JPanel(new GridLayout(0, 2, 8, 8));
-        actionsPanel.setBorder(BorderFactory.createTitledBorder("Acciones"));
-        actionsPanel.add(createButton);
-        actionsPanel.add(demoCheck);
-        actionsPanel.add(launchButton);
-        actionsPanel.add(healthButton);
-        actionsPanel.add(new JLabel("Target descarga"));
-        actionsPanel.add(downloadTargetField);
-        actionsPanel.add(downloadButton);
-        actionsPanel.add(progressBar);
-
-        JPanel rightTop = new JPanel(new BorderLayout(8, 8));
-        rightTop.add(formPanel, BorderLayout.CENTER);
-        rightTop.add(actionsPanel, BorderLayout.SOUTH);
-
-        JPanel rightPanel = new JPanel(new BorderLayout(8, 8));
-        rightPanel.add(healthLabel, BorderLayout.NORTH);
-        rightPanel.add(rightTop, BorderLayout.CENTER);
-        rightPanel.add(new JScrollPane(outputArea), BorderLayout.SOUTH);
-
-        JPanel content = new JPanel(new GridLayout(1, 2, 8, 8));
-        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        content.add(leftPanel);
-        content.add(rightPanel);
-
-        setContentPane(content);
+        setContentPane(tabbedPane);
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
@@ -139,6 +112,98 @@ public final class LauncherFrame extends JFrame {
                 onClose.run();
             }
         });
+    }
+
+    private JPanel createProfilesPanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JButton refreshButton = new JButton("🔄 Refrescar");
+        refreshButton.addActionListener(e -> refreshProfiles());
+
+        JButton launchButton = new JButton("▶️ Jugar");
+        launchButton.setFont(new Font("Arial", Font.BOLD, 14));
+        launchButton.setBackground(SECONDARY_COLOR);
+        launchButton.setForeground(Color.WHITE);
+        launchButton.addActionListener(e -> launchSelectedProfile());
+
+        JPanel topPanel = new JPanel(new BorderLayout(8, 0));
+        topPanel.add(refreshButton, BorderLayout.WEST);
+        topPanel.add(launchButton, BorderLayout.EAST);
+
+        panel.add(topPanel, BorderLayout.NORTH);
+        panel.add(new JScrollPane(profilesList), BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    private JPanel createConfigPanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JButton createButton = new JButton("✚ Crear perfil");
+        createButton.addActionListener(e -> createProfile());
+
+        JPanel formPanel = new JPanel(new GridLayout(0, 2, 8, 8));
+        formPanel.setBorder(BorderFactory.createTitledBorder("Nuevo perfil"));
+
+        addLabeledField(formPanel, "ID:", idField);
+        addLabeledField(formPanel, "Nombre:", nameField);
+        addLabeledField(formPanel, "Versión:", versionField);
+        addLabeledField(formPanel, "Java:", javaField);
+        addLabeledField(formPanel, "JVM Args:", jvmArgsField);
+        addLabeledField(formPanel, "Game Args:", gameArgsField);
+
+        JPanel topPanel = new JPanel(new BorderLayout());
+        topPanel.add(createButton, BorderLayout.WEST);
+
+        panel.add(topPanel, BorderLayout.NORTH);
+        panel.add(formPanel, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    private JPanel createDownloadsPanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JButton downloadButton = new JButton("⬇️ Iniciar descarga");
+        downloadButton.addActionListener(e -> startDownload());
+
+        JPanel controlPanel = new JPanel(new BorderLayout(8, 0));
+        controlPanel.add(new JLabel("Target:"), BorderLayout.WEST);
+        controlPanel.add(downloadTargetField, BorderLayout.CENTER);
+        controlPanel.add(downloadButton, BorderLayout.EAST);
+
+        progressBar.setPreferredSize(new Dimension(0, 30));
+
+        JPanel statusPanel = new JPanel(new BorderLayout(8, 8));
+        statusPanel.add(new JLabel("Progreso:"), BorderLayout.NORTH);
+        statusPanel.add(progressBar, BorderLayout.CENTER);
+
+        panel.add(controlPanel, BorderLayout.NORTH);
+        panel.add(statusPanel, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    private JPanel createConsolePanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JButton healthButton = new JButton("🏥 Verificar salud");
+        healthButton.addActionListener(e -> refreshHealth());
+
+        panel.add(healthLabel, BorderLayout.NORTH);
+        panel.add(new JScrollPane(outputArea), BorderLayout.CENTER);
+        panel.add(healthButton, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    private void addLabeledField(JPanel panel, String label, JTextField field) {
+        panel.add(new JLabel(label));
+        panel.add(field);
     }
 
     private void refreshProfiles() {
