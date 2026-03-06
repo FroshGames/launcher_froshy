@@ -1,6 +1,7 @@
 package am.froshy.launcher.api.internal;
 
 import am.froshy.launcher.application.LauncherService;
+import am.froshy.launcher.application.LauncherUpdateService;
 import am.froshy.launcher.config.LauncherConfig;
 import am.froshy.launcher.infrastructure.ProfileStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,9 +24,17 @@ class InternalApiServerTest {
 
     @Test
     void shouldExposeHealthEndpoint() throws Exception {
-        LauncherConfig config = new LauncherConfig(tempDir, tempDir.resolve("profiles.json"), tempDir.resolve("game"), 0);
+        LauncherConfig config = new LauncherConfig(
+                tempDir,
+                tempDir.resolve("profiles.json"),
+                tempDir.resolve("game"),
+                0,
+                "1.0-SNAPSHOT",
+                ""
+        );
         LauncherService service = new LauncherService(config, new ProfileStore(config.profilesFile(), new ObjectMapper()));
-        InternalApiServer apiServer = new InternalApiServer(0, service);
+        LauncherUpdateService updateService = new LauncherUpdateService(config.launcherVersion(), config.updatesMetadataUrl());
+        InternalApiServer apiServer = new InternalApiServer(0, service, updateService);
 
         apiServer.start();
         try {

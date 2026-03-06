@@ -1,6 +1,7 @@
 package am.froshy.launcher.api.internal;
 
 import am.froshy.launcher.application.LauncherService;
+import am.froshy.launcher.application.LauncherUpdateService;
 import am.froshy.launcher.domain.LaunchRequest;
 import am.froshy.launcher.domain.MinecraftProfile;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -18,9 +19,10 @@ import java.util.concurrent.Executors;
 public final class InternalApiServer {
     private final HttpServer server;
     private final LauncherService launcherService;
+    private final LauncherUpdateService updateService;
     private final ObjectMapper objectMapper;
 
-    public InternalApiServer(int port, LauncherService launcherService) {
+    public InternalApiServer(int port, LauncherService launcherService, LauncherUpdateService updateService) {
         try {
             this.server = HttpServer.create(new InetSocketAddress(port), 0);
         } catch (IOException ex) {
@@ -28,6 +30,7 @@ public final class InternalApiServer {
         }
 
         this.launcherService = launcherService;
+        this.updateService = updateService;
         this.objectMapper = new ObjectMapper().findAndRegisterModules();
         this.server.setExecutor(Executors.newCachedThreadPool());
         createContexts();
@@ -51,6 +54,8 @@ public final class InternalApiServer {
         server.createContext("/internal/v1/profiles", exchange -> withErrorHandling(exchange, this::handleProfiles));
         server.createContext("/internal/v1/launch", exchange -> withErrorHandling(exchange, this::handleLaunch));
         server.createContext("/internal/v1/downloads", exchange -> withErrorHandling(exchange, this::handleDownloads));
+        server.createContext("/internal/v1/updates/check", exchange -> withErrorHandling(exchange, this::handleUpdateCheck));
+        server.createContext("/internal/v1/versions/prepare", exchange -> withErrorHandling(exchange, this::handlePrepareVersion));
     }
 
     private void handleHealth(HttpExchange exchange) throws IOException {
@@ -109,6 +114,25 @@ public final class InternalApiServer {
         }
 
         sendMethodNotAllowed(exchange, List.of("POST", "GET"));
+    }
+
+    private void handleUpdateCheck(HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("GET"));
+            return;
+        }
+        sendJson(exchange, 200, updateService.checkForUpdates());
+    }
+
+    private void handlePrepareVersion(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+
+        Map<String, String> request = readBody(exchange, new TypeReference<>() {});
+        String version = request.get("version");
+        sendJson(exchange, 202, launcherService.prepareVersion(version));
     }
 
     private <T> T readBody(HttpExchange exchange, Class<T> type) throws IOException {

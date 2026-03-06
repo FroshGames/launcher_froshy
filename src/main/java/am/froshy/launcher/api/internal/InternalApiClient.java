@@ -3,6 +3,7 @@ package am.froshy.launcher.api.internal;
 import am.froshy.launcher.domain.DownloadStatus;
 import am.froshy.launcher.domain.LaunchRequest;
 import am.froshy.launcher.domain.LaunchResult;
+import am.froshy.launcher.domain.LauncherUpdateStatus;
 import am.froshy.launcher.domain.MinecraftProfile;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,6 +53,14 @@ public final class InternalApiClient {
 
     public DownloadStatus getDownloadStatus(String downloadId) {
         return send("downloads/" + downloadId, "GET", null, new TypeReference<>() {});
+    }
+
+    public LauncherUpdateStatus checkUpdates() {
+        return send("updates/check", "GET", null, new TypeReference<>() {});
+    }
+
+    public DownloadStatus prepareVersion(String version) {
+        return send("versions/prepare", "POST", Map.of("version", version), new TypeReference<>() {});
     }
 
     private <T> T send(String path, String method, Object body, TypeReference<T> typeReference) {

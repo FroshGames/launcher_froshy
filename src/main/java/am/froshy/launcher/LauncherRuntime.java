@@ -2,6 +2,7 @@ package am.froshy.launcher;
 
 import am.froshy.launcher.api.internal.InternalApiServer;
 import am.froshy.launcher.application.LauncherService;
+import am.froshy.launcher.application.LauncherUpdateService;
 import am.froshy.launcher.config.LauncherConfig;
 import am.froshy.launcher.infrastructure.ProfileStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -22,7 +23,8 @@ public final class LauncherRuntime {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
         LauncherService launcherService = new LauncherService(config, new ProfileStore(config.profilesFile(), objectMapper));
-        InternalApiServer apiServer = new InternalApiServer(config.internalApiPort(), launcherService);
+        LauncherUpdateService updateService = new LauncherUpdateService(config.launcherVersion(), config.updatesMetadataUrl());
+        InternalApiServer apiServer = new InternalApiServer(config.internalApiPort(), launcherService, updateService);
         apiServer.start();
 
         return new LauncherRuntime(config, apiServer);
@@ -44,4 +46,3 @@ public final class LauncherRuntime {
         apiServer.stop();
     }
 }
-

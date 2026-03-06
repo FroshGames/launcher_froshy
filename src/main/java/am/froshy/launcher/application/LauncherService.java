@@ -7,6 +7,10 @@ import am.froshy.launcher.domain.LaunchResult;
 import am.froshy.launcher.domain.MinecraftProfile;
 import am.froshy.launcher.infrastructure.ProfileStore;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,14 +26,21 @@ import java.util.concurrent.TimeUnit;
 public final class LauncherService {
     private final LauncherConfig config;
     private final ProfileStore profileStore;
+    private final MinecraftVersionDownloader versionDownloader;
     private final Map<String, MinecraftProfile> profiles = new ConcurrentHashMap<>();
     private final Map<String, DownloadStatus> downloads = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> downloadTasks = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private final Map<String, String> activeVersionDownloads = new ConcurrentHashMap<>();
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore) {
+        this(config, profileStore, new MojangVersionDownloader());
+    }
+
+    public LauncherService(LauncherConfig config, ProfileStore profileStore, MinecraftVersionDownloader versionDownloader) {
         this.config = config;
         this.profileStore = profileStore;
+        this.versionDownloader = versionDownloader;
         profileStore.load().forEach(profile -> profiles.put(profile.id(), profile));
     }
 
@@ -49,6 +60,8 @@ public final class LauncherService {
     public LaunchResult launch(LaunchRequest request) {
         MinecraftProfile profile = Optional.ofNullable(profiles.get(request.profileId()))
                 .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + request.profileId()));
+
+        ensureVersionDownloaded(profile.gameVersion());
 
         String launchId = UUID.randomUUID().toString();
         String commandLine = buildCommand(profile, request.demoMode());
@@ -103,19 +116,133 @@ public final class LauncherService {
         scheduler.shutdownNow();
     }
 
+    public DownloadStatus prepareVersion(String gameVersion) {
+        if (gameVersion == null || gameVersion.isBlank()) {
+            throw new IllegalArgumentException("version es obligatoria");
+        }
+
+        Path versionJar = resolveVersionJar(gameVersion);
+        String target = "minecraft-" + gameVersion;
+
+        if (isUsableVersionJar(versionJar)) {
+            String readyId = "ready-" + UUID.randomUUID();
+            DownloadStatus status = new DownloadStatus(readyId, target, "DONE", 100);
+            downloads.put(readyId, status);
+            return status;
+        }
+
+        String existingId = activeVersionDownloads.get(gameVersion);
+        if (existingId != null) {
+            DownloadStatus existing = downloads.get(existingId);
+            if (existing != null && !isTerminal(existing.state())) {
+                return existing;
+            }
+        }
+
+        String downloadId = "auto-" + UUID.randomUUID();
+        DownloadStatus queued = new DownloadStatus(downloadId, target, "QUEUED", 0);
+        downloads.put(downloadId, queued);
+        activeVersionDownloads.put(gameVersion, downloadId);
+
+        scheduler.execute(() -> {
+            try {
+                performVersionDownload(gameVersion, downloadId, target);
+            } catch (Exception ignored) {
+                // El detalle del error ya queda reflejado como FAILED en downloads.
+            } finally {
+                activeVersionDownloads.remove(gameVersion, downloadId);
+            }
+        });
+
+        return queued;
+    }
+
+    private void ensureVersionDownloaded(String gameVersion) {
+        Path versionJar = resolveVersionJar(gameVersion);
+        if (isUsableVersionJar(versionJar)) {
+            return;
+        }
+
+        String downloadId = "auto-" + UUID.randomUUID();
+        String target = "minecraft-" + gameVersion;
+        performVersionDownload(gameVersion, downloadId, target);
+    }
+
+    private void performVersionDownload(String gameVersion, String downloadId, String target) {
+        Path versionJar = resolveVersionJar(gameVersion);
+
+        try {
+            Files.createDirectories(versionJar.getParent());
+            downloads.put(downloadId, new DownloadStatus(downloadId, target, "QUEUED", 0));
+
+            versionDownloader.downloadClientJar(gameVersion, versionJar, progress -> {
+                int normalized = Math.max(0, Math.min(progress, 100));
+                String state = normalized >= 100 ? "DONE" : "IN_PROGRESS";
+                downloads.put(downloadId, new DownloadStatus(downloadId, target, state, normalized));
+            });
+
+            if (!isUsableVersionJar(versionJar)) {
+                downloads.put(downloadId, new DownloadStatus(downloadId, target, "FAILED", 0));
+                throw new IllegalStateException("La version descargada no es valida: " + gameVersion);
+            }
+
+            downloads.put(downloadId, new DownloadStatus(downloadId, target, "DONE", 100));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            downloads.put(downloadId, new DownloadStatus(downloadId, target, "FAILED", 0));
+            throw new IllegalStateException("Descarga interrumpida para version " + gameVersion, ex);
+        } catch (IOException | RuntimeException ex) {
+            downloads.put(downloadId, new DownloadStatus(downloadId, target, "FAILED", 0));
+            throw new IllegalStateException("No se pudo preparar la version " + gameVersion + ": " + ex.getMessage(), ex);
+        }
+    }
+
+    private boolean isTerminal(String state) {
+        return "DONE".equals(state) || "FAILED".equals(state);
+    }
+
+    private boolean isUsableVersionJar(Path versionJar) {
+        if (!Files.exists(versionJar)) {
+            return false;
+        }
+
+        try {
+            if (Files.size(versionJar) < 4) {
+                return false;
+            }
+
+            try (InputStream input = Files.newInputStream(versionJar)) {
+                byte[] header = input.readNBytes(4);
+                return header.length == 4
+                        && header[0] == 'P'
+                        && header[1] == 'K'
+                        && header[2] == 3
+                        && header[3] == 4;
+            }
+        } catch (IOException ex) {
+            return false;
+        }
+    }
+
+    private Path resolveVersionJar(String gameVersion) {
+        return config.gameDirectory()
+                .resolve("versions")
+                .resolve("minecraft-" + gameVersion + ".jar");
+    }
+
     private String buildCommand(MinecraftProfile profile, boolean demoMode) {
         String jvmArgs = String.join(" ", profile.jvmArgs());
         String gameArgs = String.join(" ", profile.gameArgs());
         String demoArg = demoMode ? "--demo" : "";
+        String gameJarPath = resolveVersionJar(profile.gameVersion()).toAbsolutePath().toString();
 
-        return "%s %s -jar minecraft-%s.jar --gameDir %s %s %s".formatted(
+        return "%s %s -jar \"%s\" --gameDir \"%s\" %s %s".formatted(
                 profile.javaPath(),
                 jvmArgs,
-                profile.gameVersion(),
-                config.gameDirectory(),
+                gameJarPath,
+                config.gameDirectory().toAbsolutePath(),
                 demoArg,
                 gameArgs
         ).trim().replaceAll("\\s+", " ");
     }
 }
-
