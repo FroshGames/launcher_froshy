@@ -17,6 +17,7 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -24,11 +25,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InternalApiClientTest {
 
-    private static final MinecraftVersionDownloader FAKE_DOWNLOADER = (version, destination, progressConsumer) -> {
-        progressConsumer.accept(40);
-        Files.createDirectories(destination.getParent());
-        Files.write(destination, new byte[]{'P', 'K', 3, 4, 0});
-        progressConsumer.accept(100);
+    private static final MinecraftVersionDownloader FAKE_DOWNLOADER = new MinecraftVersionDownloader() {
+        @Override
+        public void downloadVersion(String version, Path gameDir,
+                                    BiConsumer<Integer, String> progressConsumer) throws java.io.IOException {
+            progressConsumer.accept(40, "fake");
+            Path versionDir = gameDir.resolve("versions").resolve(version);
+            Files.createDirectories(versionDir);
+            Files.write(versionDir.resolve(version + ".jar"), new byte[]{'P', 'K', 3, 4, 0, 0, 0, 0});
+            Files.writeString(versionDir.resolve(version + ".json"), "{}");
+            Files.createDirectories(versionDir.resolve("natives"));
+            Files.write(versionDir.resolve("natives").resolve("fake.dll"), new byte[]{1, 2, 3, 4});
+            progressConsumer.accept(100, "done");
+        }
+
+        @Override
+        public am.froshy.launcher.application.VersionInstallation buildInstallation(
+                String version, Path gameDir, String username) {
+            Path jar = gameDir.resolve("versions").resolve(version).resolve(version + ".jar");
+            Path natives = gameDir.resolve("versions").resolve(version).resolve("natives");
+            return new am.froshy.launcher.application.VersionInstallation(
+                    List.of(jar),
+                    "net.minecraft.client.main.Main",
+                    List.of("-cp", jar.toAbsolutePath().toString()),
+                    List.of("--username", username),
+                    natives
+            );
+        }
     };
 
     @TempDir
@@ -81,7 +104,7 @@ class InternalApiClientTest {
 
             LaunchResult launch = client.launch(new LaunchRequest("builder", false));
             assertNotNull(launch.launchId());
-            assertTrue(launch.commandLine().contains("minecraft-1.20.1.jar"));
+            assertTrue(launch.commandLine().contains("1.20.1.jar"));
         } finally {
             server.stop();
         }

@@ -50,11 +50,11 @@ public final class InternalApiServer {
     }
 
     private void createContexts() {
-        server.createContext("/internal/v1/health", exchange -> withErrorHandling(exchange, this::handleHealth));
-        server.createContext("/internal/v1/profiles", exchange -> withErrorHandling(exchange, this::handleProfiles));
-        server.createContext("/internal/v1/launch", exchange -> withErrorHandling(exchange, this::handleLaunch));
-        server.createContext("/internal/v1/downloads", exchange -> withErrorHandling(exchange, this::handleDownloads));
-        server.createContext("/internal/v1/updates/check", exchange -> withErrorHandling(exchange, this::handleUpdateCheck));
+        server.createContext("/internal/v1/health",           exchange -> withErrorHandling(exchange, this::handleHealth));
+        server.createContext("/internal/v1/profiles",         exchange -> withErrorHandling(exchange, this::handleProfiles));
+        server.createContext("/internal/v1/launch",           exchange -> withErrorHandling(exchange, this::handleLaunch));
+        server.createContext("/internal/v1/downloads",        exchange -> withErrorHandling(exchange, this::handleDownloads));
+        server.createContext("/internal/v1/updates/check",    exchange -> withErrorHandling(exchange, this::handleUpdateCheck));
         server.createContext("/internal/v1/versions/prepare", exchange -> withErrorHandling(exchange, this::handlePrepareVersion));
     }
 
@@ -83,13 +83,49 @@ public final class InternalApiServer {
     }
 
     private void handleLaunch(HttpExchange exchange) throws IOException {
-        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-            sendMethodNotAllowed(exchange, List.of("POST"));
+        String path   = exchange.getRequestURI().getPath();
+        String method = exchange.getRequestMethod();
+
+        // POST /internal/v1/launch  → iniciar juego
+        if ("POST".equalsIgnoreCase(method) && "/internal/v1/launch".equals(path)) {
+            LaunchRequest request = readBody(exchange, LaunchRequest.class);
+            sendJson(exchange, 202, launcherService.launch(request));
             return;
         }
 
-        LaunchRequest request = readBody(exchange, LaunchRequest.class);
-        sendJson(exchange, 202, launcherService.launch(request));
+        // GET /internal/v1/launch/{id}/output?from=N  → líneas de output
+        if ("GET".equalsIgnoreCase(method) && path.endsWith("/output")) {
+            String id = extractSegment(path, "/output");
+            int fromIndex = parseQueryInt(exchange.getRequestURI().getQuery(), "from", 0);
+            sendJson(exchange, 200, launcherService.getGameOutput(id, fromIndex));
+            return;
+        }
+
+        // GET /internal/v1/launch/{id}/alive  → ¿el proceso sigue vivo?
+        if ("GET".equalsIgnoreCase(method) && path.endsWith("/alive")) {
+            String id = extractSegment(path, "/alive");
+            sendJson(exchange, 200, Map.of("alive", launcherService.isGameAlive(id)));
+            return;
+        }
+
+        sendMethodNotAllowed(exchange, List.of("POST", "GET"));
+    }
+
+    private static String extractSegment(String path, String suffix) {
+        String base = "/internal/v1/launch/";
+        String mid  = path.substring(base.length(), path.length() - suffix.length());
+        return mid;
+    }
+
+    private static int parseQueryInt(String query, String key, int defaultVal) {
+        if (query == null) return defaultVal;
+        for (String param : query.split("&")) {
+            if (param.startsWith(key + "=")) {
+                try { return Integer.parseInt(param.substring(key.length() + 1)); }
+                catch (NumberFormatException ignored) {}
+            }
+        }
+        return defaultVal;
     }
 
     private void handleDownloads(HttpExchange exchange) throws IOException {

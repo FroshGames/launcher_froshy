@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -20,12 +21,42 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LauncherServiceTest {
 
-    private static final MinecraftVersionDownloader FAKE_DOWNLOADER = (version, destination, progressConsumer) -> {
-        progressConsumer.accept(30);
-        Files.createDirectories(destination.getParent());
-        Files.write(destination, new byte[]{'P', 'K', 3, 4, 0});
-        progressConsumer.accept(100);
-    };
+    /** Crea un MinecraftVersionDownloader falso que simula una instalación mínima. */
+    private static MinecraftVersionDownloader fakeDownloader() {
+        return new MinecraftVersionDownloader() {
+            @Override
+            public void downloadVersion(String version, Path gameDir,
+                                        BiConsumer<Integer, String> progress)
+                    throws IOException {
+                progress.accept(30, "Descargando fake…");
+                // Crear estructura mínima: versions/{version}/{version}.jar y .json
+                Path versionDir = gameDir.resolve("versions").resolve(version);
+                Files.createDirectories(versionDir);
+                Path jar  = versionDir.resolve(version + ".jar");
+                Path json = versionDir.resolve(version + ".json");
+                // ZIP magic bytes para pasar la validación de jar
+                Files.write(jar, new byte[]{'P', 'K', 3, 4, 0, 0, 0, 0});
+                Files.writeString(json, "{}");
+                progress.accept(100, "Listo");
+            }
+
+            @Override
+            public VersionInstallation buildInstallation(String version, Path gameDir,
+                                                          String username) throws IOException {
+                Path versionDir = gameDir.resolve("versions").resolve(version);
+                Path jar        = versionDir.resolve(version + ".jar");
+                Path nativesDir = versionDir.resolve("natives");
+                Files.createDirectories(nativesDir);
+                return new VersionInstallation(
+                        List.of(jar),
+                        "net.minecraft.client.main.Main",
+                        List.of("-cp", jar.toAbsolutePath().toString()),
+                        List.of("--username", username, "--version", version),
+                        nativesDir
+                );
+            }
+        };
+    }
 
     @TempDir
     Path tempDir;
@@ -40,15 +71,12 @@ class LauncherServiceTest {
                 "1.0-SNAPSHOT",
                 ""
         );
-        LauncherService service = new LauncherService(config, new ProfileStore(config.profilesFile(), new ObjectMapper()));
+        LauncherService service = new LauncherService(
+                config, new ProfileStore(config.profilesFile(), new ObjectMapper()));
 
         MinecraftProfile profile = new MinecraftProfile(
-                "default",
-                "Perfil principal",
-                "java",
-                "1.20.1",
-                List.of("-Xmx2G"),
-                List.of("--username", "Steve")
+                "default", "Perfil principal", "java", "1.20.1",
+                List.of("-Xmx2G"), List.of("--username", "Steve")
         );
 
         service.createProfile(profile);
@@ -59,7 +87,7 @@ class LauncherServiceTest {
     }
 
     @Test
-    void shouldBuildLaunchResultWithCommandAndPrepareVersion() {
+    void shouldBuildLaunchResultWithCommandAndPrepareVersion() throws Exception {
         LauncherConfig config = new LauncherConfig(
                 tempDir,
                 tempDir.resolve("profiles.json"),
@@ -71,25 +99,42 @@ class LauncherServiceTest {
         LauncherService service = new LauncherService(
                 config,
                 new ProfileStore(config.profilesFile(), new ObjectMapper()),
-                FAKE_DOWNLOADER
+                fakeDownloader()
         );
 
-        service.createProfile(new MinecraftProfile("pvp", "Perfil PvP", "java", "1.8.9", List.of("-Xmx1G"), List.of()));
-        LaunchResult result = service.launch(new LaunchRequest("pvp", false));
+        try {
+            service.createProfile(new MinecraftProfile(
+                    "pvp", "Perfil PvP", "java", "1.8.9",
+                    List.of("-Xmx1G"), List.of()));
 
-        Path versionJar = config.gameDirectory().resolve("versions").resolve("minecraft-1.8.9.jar");
-        assertNotNull(result.launchId());
-        assertEquals("STARTED", result.status());
-        assertTrue(result.commandLine().contains(versionJar.toAbsolutePath().toString()));
-        assertTrue(Files.exists(versionJar));
-        assertTrue(startsWithJarMagic(versionJar));
-        service.shutdown();
+            var prep = service.prepareVersion("1.8.9");
+            int tries = 0;
+            while (!"DONE".equals(service.getDownloadStatus(prep.downloadId()).orElseThrow().state()) && tries < 20) {
+                Thread.sleep(100);
+                tries++;
+            }
+
+            Path versionJar = config.gameDirectory()
+                    .resolve("versions").resolve("1.8.9").resolve("1.8.9.jar");
+            assertTrue(Files.exists(versionJar), "El JAR debe existir en: " + versionJar);
+            assertTrue(startsWithJarMagic(versionJar), "El JAR debe tener magic bytes PK");
+
+            LaunchResult result = service.launch(new LaunchRequest("pvp", false));
+            assertNotNull(result.launchId());
+            assertEquals("STARTED", result.status());
+            assertTrue(result.commandLine().contains(versionJar.toAbsolutePath().toString()),
+                    "El comando debe incluir el JAR: " + result.commandLine());
+        } finally {
+            service.shutdown();
+        }
     }
 
     private boolean startsWithJarMagic(Path file) {
         try {
             byte[] header = Files.readAllBytes(file);
-            return header.length >= 4 && header[0] == 'P' && header[1] == 'K' && header[2] == 3 && header[3] == 4;
+            return header.length >= 4
+                    && header[0] == 'P' && header[1] == 'K'
+                    && header[2] == 3  && header[3] == 4;
         } catch (IOException ex) {
             return false;
         }

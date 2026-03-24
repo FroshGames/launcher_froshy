@@ -63,6 +63,15 @@ public final class InternalApiClient {
         return send("versions/prepare", "POST", Map.of("version", version), new TypeReference<>() {});
     }
 
+    public Map<String, Object> getGameOutput(String launchId, int fromIndex) {
+        return send("launch/" + launchId + "/output?from=" + fromIndex, "GET", null, new TypeReference<>() {});
+    }
+
+    public boolean isGameAlive(String launchId) {
+        Map<String, Object> res = send("launch/" + launchId + "/alive", "GET", null, new TypeReference<>() {});
+        return Boolean.TRUE.equals(res.get("alive"));
+    }
+
     private <T> T send(String path, String method, Object body, TypeReference<T> typeReference) {
         try {
             HttpRequest request = buildRequest(path, method, body);
