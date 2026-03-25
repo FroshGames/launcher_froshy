@@ -19,18 +19,24 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
-import java.util.function.IntConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -39,23 +45,18 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
     private static final URI VERSION_MANIFEST_URI =
             URI.create("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json");
     private static final String ASSETS_BASE = "https://resources.download.minecraft.net/";
-    private static final int MAX_RETRIES = 3;
-    private static final int MAX_INHERIT_DEPTH = 4;
+    private static final int MAX_RETRIES = 4;
+    private static final int LIB_DOWNLOAD_THREADS = 6;
+    private static final int ASSET_DOWNLOAD_THREADS = 12;
 
     // OS detection ──────────────────────────────────────────────────────────
     private static final String OS;
     static {
         String name = System.getProperty("os.name", "").toLowerCase();
-        if      (name.contains("win"))                          OS = "windows";
+        if      (name.contains("win"))                     OS = "windows";
         else if (name.contains("mac") || name.contains("darwin")) OS = "osx";
-        else                                                     OS = "linux";
+        else                                               OS = "linux";
     }
-    /** Sufijo para detectar nativos de la plataforma actual en el artifact path / nombre. */
-    private static final String NATIVE_SUFFIX = switch (OS) {
-        case "windows" -> "natives-windows";
-        case "osx"     -> "natives-macos";
-        default        -> "natives-linux";
-    };
 
     private final HttpClient http;
     private final ObjectMapper mapper;
@@ -77,10 +78,10 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             throws IOException, InterruptedException {
 
         // ── Fase 1: manifest + version JSON (0→5 %) ──────────────────────
-        progress.accept(0, "Descargando manifest de versiones…");
+        progress.accept(0, "Conectando con servidores de Mojang...");
         JsonNode manifest = withRetry("manifest", () -> getJson(VERSION_MANIFEST_URI));
         String versionUrl = findVersionUrl(manifest, version);
-        progress.accept(2, "Versión " + version + " encontrada");
+        progress.accept(2, "Obteniendo metadatos de version " + version + "...");
 
         Path versionDir  = gameDir.resolve("versions").resolve(version);
         Path versionJson = versionDir.resolve(version + ".json");
@@ -90,29 +91,27 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         if (Files.exists(versionJson)) {
             meta = mapper.readTree(versionJson.toFile());
         } else {
-            progress.accept(3, "Descargando metadata de " + version + "…");
             meta = withRetry("meta-" + version, () -> getJson(URI.create(versionUrl)));
             mapper.writeValue(versionJson.toFile(), meta);
         }
-        // Resolver herencia (inheritsFrom — usado por Forge/Fabric y algunos snapshots)
-        meta = resolveInheritance(meta, manifest, gameDir, 0);
-        progress.accept(5, "Metadata lista");
+        progress.accept(5, "Metadatos obtenidos. Descargando JAR del cliente...");
 
         // ── Fase 2: client JAR (5→35 %) ─────────────────────────────────
-        Path clientJar    = versionDir.resolve(version + ".jar");
-        String clientSha1 = meta.path("downloads").path("client").path("sha1").asText("");
-        if (!isValidFileSha1(clientJar, clientSha1)) {
-            String jarUrl = meta.path("downloads").path("client").path("url").asText();
-            if (!jarUrl.isBlank()) {
-                progress.accept(5, "Descargando " + version + ".jar…");
-                withRetryVoid("client-jar", () ->
-                        downloadWithProgress(URI.create(jarUrl), clientJar,
-                                p -> progress.accept(5 + p * 30 / 100, "JAR del cliente: " + p + "%")));
-            }
-        } else {
-            progress.accept(35, "JAR del cliente ya está al día");
+        Path clientJar = versionDir.resolve(version + ".jar");
+        JsonNode clientNode = meta.path("downloads").path("client");
+        String jarUrl = clientNode.path("url").asText();
+        if (jarUrl.isBlank()) {
+            throw new IOException("Metadatos incompletos para client.jar de " + version);
         }
-        progress.accept(35, "JAR del cliente ✓");
+        long jarSize = clientNode.path("size").asLong(-1L);
+        String jarSha1 = textOrNull(clientNode.path("sha1"));
+        if (!isValidFile(clientJar, Math.max(1000, jarSize), jarSha1)) {
+            withRetryVoid("client-jar", () ->
+                    downloadWithProgress(URI.create(jarUrl), clientJar,
+                            p -> progress.accept(5 + p * 30 / 100, "Descargando JAR del cliente... " + (5 + p * 30 / 100) + "%"),
+                            jarSha1, jarSize));
+        }
+        progress.accept(35, "JAR del cliente listo. Descargando librerias...");
 
         // ── Fase 3: librerías (35→68 %) ──────────────────────────────────
         JsonNode libs = meta.path("libraries");
@@ -121,227 +120,139 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         downloadLibraries(libs, gameDir, nativesDir, progress, 35, 68);
 
         // ── Fase 4: asset index (68→72 %) ────────────────────────────────
+        progress.accept(68, "Descargando indice de assets...");
         String assetIndexId  = meta.path("assetIndex").path("id").asText("legacy");
         String assetIndexUrl = meta.path("assetIndex").path("url").asText();
         Path indexFile = gameDir.resolve("assets").resolve("indexes")
                 .resolve(assetIndexId + ".json");
         Files.createDirectories(indexFile.getParent());
-        if (!Files.exists(indexFile) && !assetIndexUrl.isBlank()) {
-            progress.accept(68, "Descargando índice de assets (" + assetIndexId + ")…");
+        if (!Files.exists(indexFile)) {
             JsonNode indexData = withRetry("asset-index", () -> getJson(URI.create(assetIndexUrl)));
             mapper.writeValue(indexFile.toFile(), indexData);
         }
-        progress.accept(72, "Índice de assets ✓");
+        progress.accept(72, "Indice de assets listo. Descargando recursos del juego...");
 
         // ── Fase 5: asset objects (72→100 %) ─────────────────────────────
-        if (Files.exists(indexFile)) {
-            JsonNode indexData = mapper.readTree(indexFile.toFile());
-            downloadAssets(indexData, gameDir, progress, 72, 100);
-        }
+        JsonNode indexData = mapper.readTree(indexFile.toFile());
+        downloadAssets(indexData, gameDir, progress, 72, 100);
 
-        progress.accept(100, "¡Instalación completa!");
-    }
-
-    // ── Resolución de herencia (inheritsFrom) ────────────────────────────
-
-    /**
-     * Si {@code meta} tiene un campo {@code inheritsFrom}, descarga el JSON padre
-     * y mezcla los metadatos (librerías, argumentos, etc.). Recursivo hasta MAX_INHERIT_DEPTH.
-     */
-    private JsonNode resolveInheritance(JsonNode meta, JsonNode manifest,
-                                         Path gameDir, int depth) throws IOException, InterruptedException {
-        if (depth >= MAX_INHERIT_DEPTH || !meta.has("inheritsFrom")) return meta;
-
-        String parentId  = meta.path("inheritsFrom").asText();
-        String parentUrl = findVersionUrl(manifest, parentId);
-        Path parentDir   = gameDir.resolve("versions").resolve(parentId);
-        Path parentJson  = parentDir.resolve(parentId + ".json");
-        Files.createDirectories(parentDir);
-
-        JsonNode parent;
-        if (Files.exists(parentJson)) {
-            parent = mapper.readTree(parentJson.toFile());
-        } else {
-            parent = withRetry("meta-" + parentId, () -> getJson(URI.create(parentUrl)));
-            mapper.writeValue(parentJson.toFile(), parent);
-        }
-        parent = resolveInheritance(parent, manifest, gameDir, depth + 1);
-        return mergeMeta(parent, meta);
-    }
-
-    /** Resuelve herencia LOCALMENTE (solo lee JSONs ya descargados). */
-    private JsonNode resolveInheritanceLocal(JsonNode meta, Path gameDir) throws IOException {
-        if (!meta.has("inheritsFrom")) return meta;
-        String parentId   = meta.path("inheritsFrom").asText();
-        Path   parentJson = gameDir.resolve("versions").resolve(parentId).resolve(parentId + ".json");
-        if (!Files.exists(parentJson))
-            throw new IOException("Versión padre '" + parentId + "' no instalada. Ejecuta prepareVersion primero.");
-        JsonNode parent = mapper.readTree(parentJson.toFile());
-        parent = resolveInheritanceLocal(parent, gameDir);
-        return mergeMeta(parent, meta);
-    }
-
-    /** Fusiona dos JSONs de versión: el hijo sobreescribe al padre, excepto librerías y argumentos. */
-    private JsonNode mergeMeta(JsonNode parent, JsonNode child) {
-        ObjectNode merged = mapper.createObjectNode();
-        parent.fields().forEachRemaining(e -> merged.set(e.getKey(), e.getValue()));
-        child.fields().forEachRemaining(e -> {
-            String key = e.getKey();
-            if (!"libraries".equals(key) && !"arguments".equals(key)
-                    && !"minecraftArguments".equals(key)) {
-                merged.set(key, e.getValue());
-            }
-        });
-        // Librerías: padre primero, luego hijo
-        ArrayNode libs = mapper.createArrayNode();
-        parent.path("libraries").forEach(libs::add);
-        child.path("libraries").forEach(libs::add);
-        merged.set("libraries", libs);
-        // Argumentos del juego / JVM
-        if (child.has("arguments") || parent.has("arguments")) {
-            ObjectNode args = mapper.createObjectNode();
-            ArrayNode jvmA = mapper.createArrayNode();
-            parent.path("arguments").path("jvm").forEach(jvmA::add);
-            child.path("arguments").path("jvm").forEach(jvmA::add);
-            ArrayNode gameA = mapper.createArrayNode();
-            parent.path("arguments").path("game").forEach(gameA::add);
-            child.path("arguments").path("game").forEach(gameA::add);
-            args.set("jvm", jvmA);
-            args.set("game", gameA);
-            merged.set("arguments", args);
-        } else if (child.has("minecraftArguments")) {
-            merged.put("minecraftArguments",
-                    parent.path("minecraftArguments").asText("")
-                            + " " + child.path("minecraftArguments").asText(""));
-        }
-        return merged;
+        progress.accept(100, "Descarga completada. Listo para jugar!");
     }
 
     // ── Descarga de librerías ────────────────────────────────────────────
 
     private void downloadLibraries(JsonNode libs, Path gameDir, Path nativesDir,
-            BiConsumer<Integer, String> progress, int lo, int hi)
-            throws IOException, InterruptedException {
-        int total = libs.size();
-        if (total == 0) { progress.accept(hi, "Sin librerías"); return; }
-        int done = 0;
-        for (JsonNode lib : libs) {
-            if (!evaluateRules(lib.path("rules"))) { done++; continue; }
+            BiConsumer<Integer, String> progress, int lo, int hi) throws IOException, InterruptedException {
+        List<DownloadTask> tasks = new ArrayList<>();
+        List<Path> nativeArchives = new ArrayList<>();
+        int totalUnits = 0;
+        int readyUnits = 0;
 
-            // ── Artifact principal → classpath ──────────────────────────
+        for (JsonNode lib : libs) {
+            if (!evaluateRules(lib.path("rules"))) continue;
+
+            // Artifact principal → classpath
             JsonNode artifact = lib.path("downloads").path("artifact");
             if (!artifact.isMissingNode() && artifact.has("url")) {
+                totalUnits++;
                 String relPath = artifact.path("path").asText();
-                String sha1    = artifact.path("sha1").asText("");
                 Path dest = gameDir.resolve("libraries").resolve(relPath);
-                if (!isValidFileSha1(dest, sha1)) {
-                    Files.createDirectories(dest.getParent());
-                    final String url = artifact.path("url").asText();
-                    String name = getLibFilename(relPath);
-                    progress.accept(lo + done * (hi - lo) / total, "Lib: " + name);
-                    withRetryVoid("lib-" + relPath, () ->
-                            downloadSimple(URI.create(url), dest));
-                }
-                // ── FIX CRÍTICO: extraer nativos formato 1.17+ ──────────
-                // En 1.17+ los nativos ya NO usan "classifiers" sino que son
-                // artifacts separados con nombre como "org.lwjgl:lwjgl:3.3.x:natives-windows".
-                // Hay que detectarlos y extraer los .dll/.so al nativesDir.
-                String libName = lib.path("name").asText("");
-                boolean isNativeArtifact = libName.contains(":natives-" + NATIVE_SUFFIX.replace("natives-", ""))
-                        || libName.contains(":" + NATIVE_SUFFIX)
-                        || relPath.contains(NATIVE_SUFFIX)
-                        || relPath.contains("natives-windows")
-                        || relPath.contains("natives-linux")
-                        || relPath.contains("natives-macos")
-                        || relPath.contains("natives-osx");
-                if (isNativeArtifact && isValidFile(dest, 4)) {
-                    progress.accept(lo + done * (hi - lo) / total,
-                            "Extrayendo nativos: " + getLibFilename(relPath));
-                    extractNatives(dest, nativesDir);
+                long size = artifact.path("size").asLong(-1L);
+                String sha1 = textOrNull(artifact.path("sha1"));
+                if (!isValidFile(dest, Math.max(4, size), sha1)) {
+                    tasks.add(new DownloadTask("lib-" + relPath, URI.create(artifact.path("url").asText()), dest, sha1, size));
+                } else {
+                    readyUnits++;
                 }
             }
 
-            // ── Natives classifier (formato pre-1.17) → extraer a nativesDir ──
+            // Natives classifier → extraer a nativesDir
             String nativeKey = getNativeClassifier(lib);
             if (nativeKey != null) {
                 JsonNode natArt = lib.path("downloads").path("classifiers").path(nativeKey);
                 if (!natArt.isMissingNode() && natArt.has("url")) {
+                    totalUnits++;
                     String relPath = natArt.path("path").asText();
-                    String sha1    = natArt.path("sha1").asText("");
                     Path dest = gameDir.resolve("libraries").resolve(relPath);
-                    if (!isValidFileSha1(dest, sha1)) {
-                        Files.createDirectories(dest.getParent());
-                        final String url = natArt.path("url").asText();
-                        progress.accept(lo + done * (hi - lo) / total,
-                                "Nativos: " + getLibFilename(relPath));
-                        withRetryVoid("native-" + relPath, () ->
-                                downloadSimple(URI.create(url), dest));
-                    }
-                    if (isValidFile(dest, 4)) {
-                        progress.accept(lo + done * (hi - lo) / total,
-                                "Extrayendo: " + getLibFilename(relPath));
-                        extractNatives(dest, nativesDir);
+                    long size = natArt.path("size").asLong(-1L);
+                    String sha1 = textOrNull(natArt.path("sha1"));
+                    if (!isValidFile(dest, Math.max(4, size), sha1)) {
+                        tasks.add(new DownloadTask("native-" + relPath, URI.create(natArt.path("url").asText()), dest, sha1, size));
+                    } else {
+                        readyUnits++;
+                        nativeArchives.add(dest);
                     }
                 }
             }
-
-            done++;
-            progress.accept(lo + done * (hi - lo) / total, "");
         }
+
+        if (totalUnits == 0) {
+            progress.accept(hi, "Sin librerias que descargar.");
+            return;
+        }
+
+        int initPct = lo + (int) ((long) readyUnits * (hi - lo) / totalUnits);
+        progress.accept(initPct, "Librerias: " + readyUnits + "/" + totalUnits + " (" + initPct + "%)");
+
+        int initialReady = readyUnits;
+        int totalCount = totalUnits;
+        downloadTasks(tasks, Math.min(LIB_DOWNLOAD_THREADS, tasks.size()), (d, t) -> {
+            int current = initialReady + d;
+            int pct = lo + (int) ((long) current * (hi - lo) / totalCount);
+            progress.accept(pct, "Librerias: " + current + "/" + totalCount + " (" + pct + "%)");
+        });
+
+        for (DownloadTask task : tasks) {
+            if (task.id().startsWith("native-")) {
+                nativeArchives.add(task.dest());
+            }
+        }
+        for (Path nativeArchive : nativeArchives) {
+            if (isValidFile(nativeArchive, 4)) {
+                extractNatives(nativeArchive, nativesDir);
+            }
+        }
+
+        progress.accept(hi, "Librerias completas.");
     }
 
     // ── Descarga de assets ───────────────────────────────────────────────
 
     private void downloadAssets(JsonNode indexData, Path gameDir,
-            BiConsumer<Integer, String> progress, int lo, int hi)
-            throws InterruptedException {
+            BiConsumer<Integer, String> progress, int lo, int hi) throws IOException, InterruptedException {
         JsonNode objects = indexData.path("objects");
-        List<AssetTask> pending = new ArrayList<>();
+        List<DownloadTask> pending = new ArrayList<>();
         objects.fields().forEachRemaining(e -> {
-            String hash   = e.getValue().path("hash").asText();
+            String hash = e.getValue().path("hash").asText();
             String prefix = hash.substring(0, 2);
             Path dest = gameDir.resolve("assets").resolve("objects")
                     .resolve(prefix).resolve(hash);
-            if (!Files.exists(dest)) {
-                pending.add(new AssetTask(
-                        URI.create(ASSETS_BASE + prefix + "/" + hash), dest));
+            long size = e.getValue().path("size").asLong(-1L);
+            if (!isValidFile(dest, Math.max(1, size), hash)) {
+                pending.add(new DownloadTask("asset-" + hash,
+                        URI.create(ASSETS_BASE + prefix + "/" + hash), dest, hash, size));
             }
         });
 
-        int total   = objects.size();
-        int preDone = total - pending.size();
+        int total      = objects.size();
+        int preDone    = total - pending.size();
         AtomicInteger done = new AtomicInteger(preDone);
-        progress.accept(lo + (int)((long) preDone * (hi - lo) / Math.max(total, 1)),
-                "Assets: " + preDone + "/" + total + " listos");
+        int initPct = lo + (int)((long) preDone * (hi - lo) / Math.max(total, 1));
+        progress.accept(initPct, "Assets: " + preDone + "/" + total + " ya descargados.");
 
-        if (pending.isEmpty()) { progress.accept(hi, "Assets ✓"); return; }
+        if (pending.isEmpty()) { progress.accept(hi, "Todos los assets presentes."); return; }
 
-        progress.accept(lo, "Descargando assets: " + pending.size() + " pendientes…");
-        int threads = Math.min(8, pending.size());
-        ExecutorService pool = Executors.newFixedThreadPool(threads);
-        for (AssetTask task : pending) {
-            pool.submit(() -> {
-                try {
-                    Files.createDirectories(task.dest().getParent());
-                    downloadSimple(task.uri(), task.dest());
-                } catch (Exception ex) {
-                    System.err.println("[assets] warn: " + ex.getMessage());
-                }
-                int d = done.incrementAndGet();
-                if (d % 50 == 0 || d == total) {
-                    progress.accept(lo + (int)((long) d * (hi - lo) / total),
-                            "Assets: " + d + "/" + total);
-                }
-            });
-        }
-        pool.shutdown();
-        if (!pool.awaitTermination(60, TimeUnit.MINUTES)) {
-            pool.shutdownNow();
-        }
-        progress.accept(hi, "Assets ✓");
+        downloadTasks(pending, Math.min(ASSET_DOWNLOAD_THREADS, pending.size()), (d, t) -> {
+            int current = preDone + d;
+            done.set(current);
+            int pct = lo + (int) ((long) current * (hi - lo) / total);
+            progress.accept(pct, "Assets: " + current + "/" + total + " (" + pct + "%)");
+        });
+
+        progress.accept(hi, "Assets descargados: " + total + "/" + total);
     }
 
-    private record AssetTask(URI uri, Path dest) {}
+    private record DownloadTask(String id, URI uri, Path dest, String sha1, long size) {}
 
     // ═══════════════════════════════════════════════════════════════════════
     //  buildInstallation — construye los argumentos de lanzamiento
@@ -351,15 +262,9 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
     public VersionInstallation buildInstallation(String version, Path gameDir, String username)
             throws IOException {
 
-        Path versionDir  = gameDir.resolve("versions").resolve(version);
-        Path versionJson = versionDir.resolve(version + ".json");
-        if (!Files.exists(versionJson)) {
-            throw new IOException("Versión " + version + " no instalada. Ejecuta prepareVersion primero.");
-        }
-
-        JsonNode meta = mapper.readTree(versionJson.toFile());
-        // Resolver herencia localmente
-        meta = resolveInheritanceLocal(meta, gameDir);
+        ResolvedVersionData resolved = resolveVersionData(version, gameDir, new HashSet<>());
+        JsonNode meta = resolved.meta();
+        Path versionDir = gameDir.resolve("versions").resolve(version);
 
         // ── Classpath: librerías + client JAR ────────────────────────────
         List<Path> classpath = new ArrayList<>();
@@ -372,37 +277,41 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
                 if (Files.exists(libFile)) classpath.add(libFile);
             }
         }
-        Path clientJar = versionDir.resolve(version + ".jar");
-        if (Files.exists(clientJar)) classpath.add(clientJar);
+        String clientJarVersion = resolved.clientJarVersion();
+        Path clientJar = gameDir.resolve("versions").resolve(clientJarVersion).resolve(clientJarVersion + ".jar");
+        if (!Files.exists(clientJar)) {
+            clientJar = versionDir.resolve(version + ".jar");
+        }
+        classpath.add(clientJar);  // client JAR al final
 
         // ── Variables de sustitución ─────────────────────────────────────
-        String mainClass    = meta.path("mainClass").asText();
-        String assetIndexId = meta.path("assetIndex").path("id").asText("legacy");
-        Path   assetsDir    = gameDir.resolve("assets");
-        Path   nativesDir   = versionDir.resolve("natives");
+        String mainClass     = meta.path("mainClass").asText();
+        String assetIndexId  = meta.path("assetIndex").path("id").asText("legacy");
+        Path   assetsDir     = gameDir.resolve("assets");
+        Path   nativesDir    = versionDir.resolve("natives");
 
         String cpStr = classpath.stream()
                 .map(p -> p.toAbsolutePath().toString())
                 .collect(java.util.stream.Collectors.joining(File.pathSeparator));
 
         Map<String, String> vars = new HashMap<>();
-        vars.put("auth_player_name",  username);
-        vars.put("version_name",      version);
-        vars.put("game_directory",    gameDir.toAbsolutePath().toString());
-        vars.put("assets_root",       assetsDir.toAbsolutePath().toString());
-        vars.put("assets_index_name", assetIndexId);
-        vars.put("auth_uuid",         offlineUUID(username).toString());
-        vars.put("auth_access_token", "0");
-        vars.put("clientid",          "0");
-        vars.put("auth_xuid",         "0");
-        vars.put("user_type",         "offline");
-        vars.put("version_type",      meta.path("type").asText("release"));
-        vars.put("launcher_name",     "FroshyLauncher");
-        vars.put("launcher_version",  "1.0");
-        vars.put("natives_directory", nativesDir.toAbsolutePath().toString());
-        vars.put("classpath",         cpStr);
-        vars.put("resolution_width",  "854");
-        vars.put("resolution_height", "480");
+        vars.put("auth_player_name",    username);
+        vars.put("version_name",        version);
+        vars.put("game_directory",      gameDir.toAbsolutePath().toString());
+        vars.put("assets_root",         assetsDir.toAbsolutePath().toString());
+        vars.put("assets_index_name",   assetIndexId);
+        vars.put("auth_uuid",           offlineUUID(username).toString());
+        vars.put("auth_access_token",   "0");
+        vars.put("clientid",            "0");
+        vars.put("auth_xuid",           "0");
+        vars.put("user_type",           "offline");
+        vars.put("version_type",        meta.path("type").asText("release"));
+        vars.put("launcher_name",       "FroshyLauncher");
+        vars.put("launcher_version",    "1.0");
+        vars.put("natives_directory",   nativesDir.toAbsolutePath().toString());
+        vars.put("classpath",           cpStr);
+        vars.put("resolution_width",    "854");
+        vars.put("resolution_height",   "480");
 
         // ── JVM arguments ────────────────────────────────────────────────
         List<String> jvmArgs = new ArrayList<>();
@@ -410,7 +319,7 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         if (!jvmArgsNode.isMissingNode() && jvmArgsNode.isArray()) {
             jvmArgs.addAll(processArgNodes(jvmArgsNode, vars));
         } else {
-            // Formato antiguo (<1.13)
+            // Formato antiguo (<1.13): argumentos mínimos
             jvmArgs.add("-Djava.library.path=" + nativesDir.toAbsolutePath());
             jvmArgs.add("-Dminecraft.launcher.brand=FroshyLauncher");
             jvmArgs.add("-Dminecraft.launcher.version=1.0");
@@ -432,6 +341,107 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         return new VersionInstallation(classpath, mainClass, jvmArgs, gameArgs, nativesDir);
     }
 
+    private ResolvedVersionData resolveVersionData(String version, Path gameDir, Set<String> visiting)
+            throws IOException {
+        if (!visiting.add(version)) {
+            throw new IOException("Cadena de herencia circular detectada en version: " + version);
+        }
+
+        Path versionJson = gameDir.resolve("versions").resolve(version).resolve(version + ".json");
+        if (!Files.exists(versionJson)) {
+            throw new IOException("Version " + version + " no instalada. Falta: " + versionJson);
+        }
+
+        ObjectNode current = (ObjectNode) mapper.readTree(versionJson.toFile());
+        String parentId = current.path("inheritsFrom").asText("");
+
+        if (parentId.isBlank()) {
+            visiting.remove(version);
+            return new ResolvedVersionData(current, findClientJarVersion(version, gameDir, new HashSet<>()));
+        }
+
+        ResolvedVersionData parent = resolveVersionData(parentId, gameDir, visiting);
+        ObjectNode merged = mergeVersionMeta((ObjectNode) parent.meta(), current);
+        visiting.remove(version);
+        return new ResolvedVersionData(merged, findClientJarVersion(version, gameDir, new HashSet<>()));
+    }
+
+    private String findClientJarVersion(String version, Path gameDir, Set<String> visiting) throws IOException {
+        if (!visiting.add(version)) {
+            throw new IOException("Cadena de herencia circular al resolver JAR cliente: " + version);
+        }
+
+        Path versionDir = gameDir.resolve("versions").resolve(version);
+        Path jar = versionDir.resolve(version + ".jar");
+        Path json = versionDir.resolve(version + ".json");
+        if (!Files.exists(json)) {
+            throw new IOException("Version " + version + " no instalada. Falta: " + json);
+        }
+
+        ObjectNode meta = (ObjectNode) mapper.readTree(json.toFile());
+        if (Files.exists(jar) || meta.path("downloads").path("client").has("url")) {
+            return version;
+        }
+
+        String parent = meta.path("inheritsFrom").asText("");
+        if (parent.isBlank()) {
+            return version;
+        }
+
+        return findClientJarVersion(parent, gameDir, visiting);
+    }
+
+    private ObjectNode mergeVersionMeta(ObjectNode parent, ObjectNode child) {
+        ObjectNode merged = parent.deepCopy();
+
+        child.fields().forEachRemaining(entry -> {
+            String field = entry.getKey();
+            if ("libraries".equals(field) || "arguments".equals(field)) {
+                return;
+            }
+            merged.set(field, entry.getValue());
+        });
+
+        ArrayNode mergedLibraries = mapper.createArrayNode();
+        JsonNode parentLibraries = parent.path("libraries");
+        if (parentLibraries.isArray()) {
+            parentLibraries.forEach(mergedLibraries::add);
+        }
+        JsonNode childLibraries = child.path("libraries");
+        if (childLibraries.isArray()) {
+            childLibraries.forEach(mergedLibraries::add);
+        }
+        merged.set("libraries", mergedLibraries);
+
+        ObjectNode mergedArguments = mapper.createObjectNode();
+        JsonNode parentArgs = parent.path("arguments");
+        JsonNode childArgs = child.path("arguments");
+        mergeArgumentArray(parentArgs, childArgs, mergedArguments, "jvm");
+        mergeArgumentArray(parentArgs, childArgs, mergedArguments, "game");
+        if (!mergedArguments.isEmpty()) {
+            merged.set("arguments", mergedArguments);
+        }
+
+        return merged;
+    }
+
+    private void mergeArgumentArray(JsonNode parentArgs, JsonNode childArgs, ObjectNode mergedArguments, String key) {
+        ArrayNode merged = mapper.createArrayNode();
+
+        if (parentArgs.isObject() && parentArgs.path(key).isArray()) {
+            parentArgs.path(key).forEach(merged::add);
+        }
+        if (childArgs.isObject() && childArgs.path(key).isArray()) {
+            childArgs.path(key).forEach(merged::add);
+        }
+
+        if (!merged.isEmpty()) {
+            mergedArguments.set(key, merged);
+        }
+    }
+
+    private record ResolvedVersionData(JsonNode meta, String clientJarVersion) {}
+
     // ═══════════════════════════════════════════════════════════════════════
     //  Helpers de argumentos
     // ═══════════════════════════════════════════════════════════════════════
@@ -443,8 +453,11 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
                 result.add(substitute(node.asText(), vars));
             } else if (node.isObject()) {
                 JsonNode rules = node.path("rules");
-                // Ignorar nodos con "features" (demo mode, custom resolution) salvo que se soporten
-                if (!rules.isMissingNode() && rules.toString().contains("features")) continue;
+                // Ignorar nodos con "features" (demo, custom resolution) excepto si los soportamos
+                if (!node.path("rules").isMissingNode()
+                        && node.path("rules").toString().contains("features")) {
+                    continue;
+                }
                 if (evaluateRules(rules)) {
                     JsonNode val = node.path("value");
                     if (val.isTextual()) {
@@ -467,7 +480,7 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  Helpers de reglas OS / arch
+    //  Helpers de reglas OS
     // ═══════════════════════════════════════════════════════════════════════
 
     private boolean evaluateRules(JsonNode rules) {
@@ -480,13 +493,6 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             if (!os.isMissingNode()) {
                 String reqOs = os.path("name").asText("");
                 if (!reqOs.isEmpty() && !reqOs.equals(OS)) match = false;
-                // Verificar arquitectura si se especifica
-                String reqArch = os.path("arch").asText("");
-                if (!reqArch.isEmpty()) {
-                    String sysArch = System.getProperty("os.arch", "").toLowerCase();
-                    boolean is64 = sysArch.contains("64") || sysArch.contains("aarch64");
-                    if ("x86".equals(reqArch) && is64) match = false;
-                }
             }
             // Ignorar reglas de "features" (se manejan por separado)
             if (!rule.path("features").isMissingNode()) match = false;
@@ -510,36 +516,7 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
                 return v.path("url").asText();
             }
         }
-        throw new IOException("Versión de Minecraft no encontrada en el manifest: " + version);
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  Verificación SHA-1
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /**
-     * Verifica que el archivo exista y coincida con el SHA-1 esperado.
-     * Si {@code expectedSha1} está vacío, solo verifica que el archivo tenga un tamaño mínimo.
-     */
-    private boolean isValidFileSha1(Path file, String expectedSha1) {
-        if (!Files.exists(file)) return false;
-        if (expectedSha1 == null || expectedSha1.isBlank()) {
-            try { return Files.size(file) >= 1000; } catch (IOException e) { return false; }
-        }
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-1");
-            try (InputStream is = Files.newInputStream(file)) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
-            }
-            byte[] digest = md.digest();
-            StringBuilder sb = new StringBuilder(40);
-            for (byte b : digest) sb.append(String.format("%02x", b));
-            return sb.toString().equalsIgnoreCase(expectedSha1);
-        } catch (Exception e) {
-            return false;
-        }
+        throw new IOException("Version de Minecraft no encontrada en manifest: " + version);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -557,8 +534,8 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         return mapper.readTree(res.body());
     }
 
-    private void downloadWithProgress(URI uri, Path dest, IntConsumer progress)
-            throws IOException, InterruptedException {
+    private void downloadWithProgress(URI uri, Path dest, java.util.function.IntConsumer progress,
+            String expectedSha1, long expectedSize) throws IOException, InterruptedException {
         HttpRequest req = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMinutes(5))
                 .header("User-Agent", "FroshyLauncher/1.0")
@@ -582,10 +559,12 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
                 if (total > 0) progress.accept((int)(read * 100 / total));
             }
         }
+        verifyDownloadedFile(tmp, expectedSha1, expectedSize, uri);
         Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private void downloadSimple(URI uri, Path dest) throws IOException, InterruptedException {
+    private void downloadSimple(URI uri, Path dest, String expectedSha1, long expectedSize)
+            throws IOException, InterruptedException {
         Path tmp = dest.resolveSibling(dest.getFileName() + ".part");
         HttpRequest req = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMinutes(2))
@@ -600,15 +579,65 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             Files.deleteIfExists(tmp);
             throw new IOException("HTTP " + res.statusCode() + " → " + uri);
         }
+        verifyDownloadedFile(tmp, expectedSha1, expectedSize, uri);
         Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private void verifyDownloadedFile(Path file, String expectedSha1, long expectedSize, URI uri) throws IOException {
+        if (expectedSize > 0 && Files.size(file) != expectedSize) {
+            throw new IOException("Tamano invalido para " + uri + " (esperado=" + expectedSize
+                    + ", real=" + Files.size(file) + ")");
+        }
+        if (expectedSha1 != null && !expectedSha1.isBlank()) {
+            String actual = sha1Hex(file);
+            if (!expectedSha1.equalsIgnoreCase(actual)) {
+                throw new IOException("SHA1 invalido para " + uri + " (esperado=" + expectedSha1
+                        + ", real=" + actual + ")");
+            }
+        }
+    }
+
+    private void downloadTasks(List<DownloadTask> tasks, int threads,
+            BiConsumer<Integer, Integer> onProgress) throws IOException, InterruptedException {
+        if (tasks.isEmpty()) return;
+
+        ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, threads));
+        CompletionService<Void> completion = new ExecutorCompletionService<>(pool);
+        ConcurrentLinkedQueue<String> failures = new ConcurrentLinkedQueue<>();
+
+        for (DownloadTask task : tasks) {
+            completion.submit(() -> {
+                Files.createDirectories(task.dest().getParent());
+                withRetryVoid(task.id(), () -> downloadSimple(task.uri(), task.dest(), task.sha1(), task.size()));
+                return null;
+            });
+        }
+
+        try {
+            for (int i = 1; i <= tasks.size(); i++) {
+                try {
+                    completion.take().get();
+                } catch (ExecutionException ex) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    failures.add(cause.getMessage());
+                }
+                onProgress.accept(i, tasks.size());
+            }
+        } finally {
+            pool.shutdown();
+            if (!pool.awaitTermination(60, TimeUnit.MINUTES)) {
+                pool.shutdownNow();
+            }
+        }
+
+        if (!failures.isEmpty()) {
+            String detail = failures.stream().limit(3).collect(java.util.stream.Collectors.joining(" | "));
+            throw new IOException("Descargas incompletas (" + failures.size() + " fallos): " + detail);
+        }
     }
 
     // ── Extracción de nativos ────────────────────────────────────────────
 
-    /**
-     * Extrae archivos de biblioteca nativa (.dll, .so, .dylib, .jnilib) de un JAR
-     * al directorio {@code nativesDir}. Siempre sobreescribe para evitar DLLs corruptos.
-     */
     private void extractNatives(Path nativeJar, Path nativesDir) throws IOException {
         Files.createDirectories(nativesDir);
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(nativeJar))) {
@@ -619,8 +648,9 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
                 if (name.endsWith(".dll") || name.endsWith(".so")
                         || name.endsWith(".dylib") || name.endsWith(".jnilib")) {
                     Path target = nativesDir.resolve(Path.of(name).getFileName());
-                    // Siempre sobreescribir — evita DLLs corruptos de descargas previas
-                    Files.copy(zip, target, StandardCopyOption.REPLACE_EXISTING);
+                    if (!Files.exists(target)) {
+                        Files.copy(zip, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
                 }
                 zip.closeEntry();
             }
@@ -634,10 +664,47 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         catch (IOException e) { return false; }
     }
 
-    /** Extrae el nombre de archivo final de un path de librería Maven. */
-    private String getLibFilename(String relPath) {
-        int idx = relPath.lastIndexOf('/');
-        return idx >= 0 ? relPath.substring(idx + 1) : relPath;
+    private boolean isValidFile(Path p, long minSize, String expectedSha1) {
+        try {
+            if (!Files.exists(p) || Files.size(p) < minSize) return false;
+            if (expectedSha1 == null || expectedSha1.isBlank()) return true;
+            return expectedSha1.equalsIgnoreCase(sha1Hex(p));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private String textOrNull(JsonNode node) {
+        if (node == null || node.isMissingNode()) return null;
+        String value = node.asText("").trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    private String sha1Hex(Path file) throws IOException {
+        MessageDigest md;
+        try {
+            md = MessageDigest.getInstance("SHA-1");
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-1 no disponible", ex);
+        }
+
+        try (InputStream in = Files.newInputStream(file)) {
+            byte[] buf = new byte[16_384];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                md.update(buf, 0, n);
+            }
+        }
+        return toHex(md.digest());
+    }
+
+    private String toHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >>> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
     }
 
     private static UUID offlineUUID(String username) {
@@ -653,7 +720,6 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             try { return s.get(); }
             catch (IOException ex) {
                 last = ex;
-                System.err.println("[retry] " + op + " intento " + i + "/" + MAX_RETRIES + ": " + ex.getMessage());
                 if (i < MAX_RETRIES) Thread.sleep(500L * i);
             }
         }

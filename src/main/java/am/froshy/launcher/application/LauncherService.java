@@ -5,6 +5,8 @@ import am.froshy.launcher.domain.DownloadStatus;
 import am.froshy.launcher.domain.LaunchRequest;
 import am.froshy.launcher.domain.LaunchResult;
 import am.froshy.launcher.domain.MinecraftProfile;
+import am.froshy.launcher.domain.ModpackManifest;
+import am.froshy.launcher.domain.PreparedLaunchStatus;
 import am.froshy.launcher.infrastructure.ProfileStore;
 
 import java.io.BufferedReader;
@@ -26,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 
 public final class LauncherService {
 
@@ -34,11 +37,13 @@ public final class LauncherService {
     private final LauncherConfig config;
     private final ProfileStore profileStore;
     private final MinecraftVersionDownloader versionDownloader;
+    private final ModpackInstaller modpackInstaller;
 
     private final Map<String, MinecraftProfile> profiles         = new ConcurrentHashMap<>();
     private final Map<String, DownloadStatus>   downloads        = new ConcurrentHashMap<>();
     private final Map<String, String>           activeVersionDls = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> downloadTasks  = new ConcurrentHashMap<>();
+    private final Map<String, PreparedLaunchStatus> preparedLaunches = new ConcurrentHashMap<>();
 
     // Procesos de juego activos
     private final Map<String, Process>       activeProcesses = new ConcurrentHashMap<>();
@@ -47,14 +52,21 @@ public final class LauncherService {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore) {
-        this(config, profileStore, new MojangVersionDownloader());
+        this(config, profileStore, new MojangVersionDownloader(), new ModpackInstaller());
     }
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore,
                            MinecraftVersionDownloader versionDownloader) {
+        this(config, profileStore, versionDownloader, new ModpackInstaller());
+    }
+
+    public LauncherService(LauncherConfig config, ProfileStore profileStore,
+                           MinecraftVersionDownloader versionDownloader,
+                           ModpackInstaller modpackInstaller) {
         this.config            = config;
         this.profileStore      = profileStore;
         this.versionDownloader = versionDownloader;
+        this.modpackInstaller  = modpackInstaller;
         profileStore.load().forEach(p -> profiles.put(p.id(), p));
     }
 
@@ -78,6 +90,18 @@ public final class LauncherService {
         MinecraftProfile profile = Optional.ofNullable(profiles.get(request.profileId()))
                 .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + request.profileId()));
 
+        String effectiveVersion;
+        try {
+            effectiveVersion = resolveLaunchPlan(profile).effectiveVersionId();
+        } catch (IOException ex) {
+            throw new IllegalStateException("No se pudo leer el modpack del perfil: " + ex.getMessage(), ex);
+        }
+
+        return launchWithVersion(request, profile, effectiveVersion);
+    }
+
+    private LaunchResult launchWithVersion(LaunchRequest request, MinecraftProfile profile, String effectiveVersion) {
+
         // Extraer username de los gameArgs del perfil (--username <valor>)
         String username = extractUsername(profile);
 
@@ -85,10 +109,10 @@ public final class LauncherService {
         VersionInstallation install;
         try {
             install = versionDownloader.buildInstallation(
-                    profile.gameVersion(), config.gameDirectory(), username);
+                    effectiveVersion, config.gameDirectory(), username);
         } catch (IOException ex) {
             throw new IllegalStateException(
-                    "Version " + profile.gameVersion() + " no preparada: " + ex.getMessage(), ex);
+                    "Version " + effectiveVersion + " no preparada: " + ex.getMessage(), ex);
         }
 
         // Construir comando completo
@@ -125,6 +149,45 @@ public final class LauncherService {
         } catch (IOException ex) {
             throw new IllegalStateException("No se pudo iniciar Minecraft: " + ex.getMessage(), ex);
         }
+    }
+
+    /** Prepara la version del perfil y la lanza en un solo flujo. */
+    public LaunchResult prepareAndLaunch(LaunchRequest request) {
+        MinecraftProfile profile = Optional.ofNullable(profiles.get(request.profileId()))
+                .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + request.profileId()));
+
+        try {
+            LaunchPlan plan = prepareProfile(profile, (p, m) -> {});
+            return launchWithVersion(request, profile, plan.effectiveVersionId());
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("No se pudo preparar el lanzamiento: " + ex.getMessage(), ex);
+        } catch (IOException ex) {
+            throw new IllegalStateException("No se pudo preparar el lanzamiento: " + ex.getMessage(), ex);
+        }
+    }
+
+    public PreparedLaunchStatus startPreparedLaunch(LaunchRequest request) {
+        MinecraftProfile profile = Optional.ofNullable(profiles.get(request.profileId()))
+                .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + request.profileId()));
+
+        String operationId = "pl-" + UUID.randomUUID();
+        PreparedLaunchStatus queued = new PreparedLaunchStatus(
+                operationId,
+                profile.id(),
+                profile.gameVersion(),
+                "QUEUED",
+                0,
+                "En cola..."
+        );
+        preparedLaunches.put(operationId, queued);
+
+        scheduler.execute(() -> runPreparedLaunch(operationId, request, profile));
+        return queued;
+    }
+
+    public Optional<PreparedLaunchStatus> getPreparedLaunchStatus(String operationId) {
+        return Optional.ofNullable(preparedLaunches.get(operationId));
     }
 
     // ── Output del proceso ────────────────────────────────────────────────
@@ -185,7 +248,7 @@ public final class LauncherService {
         // ¿Ya instalada completamente?
         if (isVersionInstalled(gameVersion)) {
             String id = "ready-" + UUID.randomUUID();
-            DownloadStatus done = new DownloadStatus(id, target, "DONE", 100, "Ya instalada");
+            DownloadStatus done = new DownloadStatus(id, target, "DONE", 100);
             downloads.put(id, done);
             return done;
         }
@@ -198,7 +261,7 @@ public final class LauncherService {
         }
 
         String downloadId = "dl-" + UUID.randomUUID();
-        downloads.put(downloadId, new DownloadStatus(downloadId, target, "QUEUED", 0, "Esperando…"));
+        downloads.put(downloadId, new DownloadStatus(downloadId, target, "QUEUED", 0));
         activeVersionDls.put(gameVersion, downloadId);
 
         scheduler.execute(() -> {
@@ -206,15 +269,13 @@ public final class LauncherService {
                 versionDownloader.downloadVersion(gameVersion, config.gameDirectory(), (prog, msg) -> {
                     int norm = Math.max(0, Math.min(prog, 100));
                     String state = norm >= 100 ? "DONE" : "IN_PROGRESS";
-                    String displayMsg = (msg != null && !msg.isBlank()) ? msg : "";
-                    downloads.put(downloadId, new DownloadStatus(downloadId, target, state, norm, displayMsg));
+                    String message = msg != null ? msg : "";
+                    downloads.put(downloadId, new DownloadStatus(downloadId, target, state, norm, message));
                 });
-                downloads.put(downloadId, new DownloadStatus(downloadId, target, "DONE", 100, "¡Instalación completa!"));
+                downloads.put(downloadId, new DownloadStatus(downloadId, target, "DONE", 100, "Instalacion completada."));
             } catch (Exception ex) {
-                String errMsg = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
                 downloads.put(downloadId, new DownloadStatus(downloadId, target, "FAILED", 0,
-                        "Error: " + errMsg));
-                System.err.println("[LauncherService] Descarga fallida para " + gameVersion + ": " + errMsg);
+                        "Error: " + ex.getMessage()));
             } finally {
                 activeVersionDls.remove(gameVersion, downloadId);
             }
@@ -270,21 +331,8 @@ public final class LauncherService {
         Path dir  = config.gameDirectory().resolve("versions").resolve(version);
         Path jar  = dir.resolve(version + ".jar");
         Path json = dir.resolve(version + ".json");
-        Path nativesDir = dir.resolve("natives");
         try {
-            if (!(Files.exists(json) && Files.exists(jar) && Files.size(jar) > 10_000)) {
-                return false;
-            }
-            if (!Files.isDirectory(nativesDir)) {
-                return false;
-            }
-            // Evita falsos positivos: si no hay ningun binario nativo extraido, se re-prepara.
-            try (var files = Files.list(nativesDir)) {
-                return files.anyMatch(p -> {
-                    String n = p.getFileName().toString().toLowerCase();
-                    return n.endsWith(".dll") || n.endsWith(".so") || n.endsWith(".dylib") || n.endsWith(".jnilib");
-                });
-            }
+            return Files.exists(json) && Files.exists(jar) && Files.size(jar) > 10_000;
         } catch (IOException e) { return false; }
     }
 
@@ -299,5 +347,231 @@ public final class LauncherService {
         }
         // Fallback: usar el nombre del perfil sin espacios
         return profile.displayName().replaceAll("\\s+", "_");
+    }
+
+    private void waitForDownloadCompletion(String downloadId, String gameVersion) {
+        for (;;) {
+            DownloadStatus status = downloads.get(downloadId);
+            if (status == null) {
+                throw new IllegalStateException("No se encontro el estado de descarga para " + gameVersion);
+            }
+            if ("DONE".equals(status.state())) return;
+            if ("FAILED".equals(status.state())) {
+                throw new IllegalStateException("No se pudo preparar " + gameVersion + ": " + status.message());
+            }
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrumpido preparando " + gameVersion, ex);
+            }
+        }
+    }
+
+    private void runPreparedLaunch(String operationId, LaunchRequest request, MinecraftProfile profile) {
+        try {
+            LaunchPlan basePlan = resolveLaunchPlan(profile);
+            preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                    operationId,
+                    profile.id(),
+                    basePlan.minecraftVersion(),
+                    "PREPARING",
+                    1,
+                    "Verificando instalacion de Minecraft " + basePlan.minecraftVersion() + "..."
+            ));
+
+            DownloadStatus prep = prepareVersion(basePlan.minecraftVersion());
+
+            for (;;) {
+                DownloadStatus status = downloads.get(prep.downloadId());
+                if (status == null) {
+                    throw new IllegalStateException("No se encontro el estado de preparacion de " + basePlan.minecraftVersion());
+                }
+
+                if ("DONE".equals(status.state())) {
+                    break;
+                }
+                if ("FAILED".equals(status.state())) {
+                    throw new IllegalStateException(status.message());
+                }
+
+                int mappedProgress = Math.max(1, Math.min(60, status.progress() * 60 / 100));
+                String message = (status.message() == null || status.message().isBlank())
+                        ? "Preparando archivos de Minecraft..."
+                        : status.message();
+                preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                        operationId,
+                        profile.id(),
+                        basePlan.minecraftVersion(),
+                        "PREPARING",
+                        mappedProgress,
+                        message
+                ));
+                Thread.sleep(250);
+            }
+
+            LaunchPlan readyPlan = prepareLoadersAndModpack(operationId, profile, basePlan);
+
+            preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                    operationId,
+                    profile.id(),
+                    readyPlan.effectiveVersionId(),
+                    "STARTING",
+                    95,
+                    "Iniciando Minecraft..."
+            ));
+
+            LaunchResult result = launchWithVersion(request, profile, readyPlan.effectiveVersionId());
+
+            preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                    operationId,
+                    profile.id(),
+                    readyPlan.effectiveVersionId(),
+                    "DONE",
+                    100,
+                    "Minecraft iniciado.",
+                    result.launchId()
+            ));
+        } catch (Exception ex) {
+            preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                    operationId,
+                    profile.id(),
+                    profile.gameVersion(),
+                    "FAILED",
+                    0,
+                    "Error: " + ex.getMessage()
+            ));
+        }
+    }
+
+    private LaunchPlan prepareLoadersAndModpack(String operationId, MinecraftProfile profile, LaunchPlan basePlan)
+            throws IOException, InterruptedException {
+        String effectiveVersion = basePlan.minecraftVersion();
+
+        if (basePlan.hasLoader()) {
+            preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                    operationId,
+                    profile.id(),
+                    basePlan.minecraftVersion(),
+                    "PREPARING",
+                    62,
+                    "Instalando loader " + basePlan.loaderType() + " " + basePlan.loaderVersion() + "..."
+            ));
+
+            effectiveVersion = modpackInstaller.installLoader(
+                    basePlan.loaderType(),
+                    basePlan.minecraftVersion(),
+                    basePlan.loaderVersion(),
+                    config.gameDirectory(),
+                    (progress, message) -> preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                            operationId,
+                            profile.id(),
+                            basePlan.minecraftVersion(),
+                            "PREPARING",
+                            60 + Math.max(0, Math.min(progress, 100)) * 25 / 100,
+                            message == null || message.isBlank() ? "Instalando loader..." : message
+                    ))
+            );
+        }
+
+        if (basePlan.hasModpack()) {
+            Path modpackPath = basePlan.modpackPath();
+            ModpackManifest manifest = modpackInstaller.parseModpack(modpackPath);
+            String launchVersion = effectiveVersion;
+            modpackInstaller.installModpackFiles(modpackPath, manifest, config.gameDirectory(), (progress, message) ->
+                    preparedLaunches.put(operationId, new PreparedLaunchStatus(
+                            operationId,
+                            profile.id(),
+                            launchVersion,
+                            "PREPARING",
+                            85 + Math.max(0, Math.min(progress, 100)) * 10 / 100,
+                            message == null || message.isBlank() ? "Instalando modpack..." : message
+                    ))
+            );
+        }
+
+        return new LaunchPlan(
+                basePlan.minecraftVersion(),
+                basePlan.loaderType(),
+                basePlan.loaderVersion(),
+                basePlan.modpackPath(),
+                effectiveVersion
+        );
+    }
+
+    private LaunchPlan prepareProfile(MinecraftProfile profile, BiConsumer<Integer, String> progress)
+            throws IOException, InterruptedException {
+        LaunchPlan plan = resolveLaunchPlan(profile);
+
+        progress.accept(0, "Preparando Minecraft " + plan.minecraftVersion() + "...");
+        DownloadStatus prep = prepareVersion(plan.minecraftVersion());
+        waitForDownloadCompletion(prep.downloadId(), plan.minecraftVersion());
+
+        String effectiveVersion = plan.minecraftVersion();
+        if (plan.hasLoader()) {
+            effectiveVersion = modpackInstaller.installLoader(
+                    plan.loaderType(),
+                    plan.minecraftVersion(),
+                    plan.loaderVersion(),
+                    config.gameDirectory(),
+                    progress
+            );
+        }
+
+        if (plan.hasModpack()) {
+            ModpackManifest manifest = modpackInstaller.parseModpack(plan.modpackPath());
+            modpackInstaller.installModpackFiles(plan.modpackPath(), manifest, config.gameDirectory(), progress);
+        }
+
+        return new LaunchPlan(plan.minecraftVersion(), plan.loaderType(), plan.loaderVersion(), plan.modpackPath(), effectiveVersion);
+    }
+
+    private LaunchPlan resolveLaunchPlan(MinecraftProfile profile) throws IOException {
+        String minecraftVersion = profile.gameVersion();
+        String loaderType = profile.loaderType();
+        String loaderVersion = profile.loaderVersion();
+        Path modpackPath = null;
+
+        if (profile.hasModpack()) {
+            modpackPath = Path.of(profile.modpackPath());
+            if (!Files.exists(modpackPath)) {
+                throw new IOException("No existe el modpack en ruta: " + modpackPath);
+            }
+
+            ModpackManifest manifest = modpackInstaller.parseModpack(modpackPath);
+            if (manifest.minecraftVersion() != null && !manifest.minecraftVersion().isBlank()) {
+                minecraftVersion = manifest.minecraftVersion();
+            }
+            if (manifest.loaderType() != null && !manifest.loaderType().isBlank()) {
+                loaderType = manifest.loaderType();
+            }
+            if (manifest.loaderVersion() != null && !manifest.loaderVersion().isBlank()) {
+                loaderVersion = manifest.loaderVersion();
+            }
+        }
+
+        String effectiveVersion = ModpackInstaller.computeEffectiveVersionId(
+                minecraftVersion,
+                loaderType,
+                loaderVersion
+        );
+
+        return new LaunchPlan(minecraftVersion, loaderType, loaderVersion, modpackPath, effectiveVersion);
+    }
+
+    private record LaunchPlan(
+            String minecraftVersion,
+            String loaderType,
+            String loaderVersion,
+            Path modpackPath,
+            String effectiveVersionId
+    ) {
+        private boolean hasLoader() {
+            return loaderType != null && !loaderType.isBlank() && !"VANILLA".equalsIgnoreCase(loaderType);
+        }
+
+        private boolean hasModpack() {
+            return modpackPath != null;
+        }
     }
 }

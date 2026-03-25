@@ -5,6 +5,7 @@ import am.froshy.launcher.domain.LaunchRequest;
 import am.froshy.launcher.domain.LaunchResult;
 import am.froshy.launcher.domain.LauncherUpdateStatus;
 import am.froshy.launcher.domain.MinecraftProfile;
+import am.froshy.launcher.domain.PreparedLaunchStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -45,6 +46,18 @@ public final class InternalApiClient {
 
     public LaunchResult launch(LaunchRequest request) {
         return send("launch", "POST", request, new TypeReference<>() {});
+    }
+
+    public LaunchResult launchPrepared(LaunchRequest request) {
+        return send("launch-prepared", "POST", request, new TypeReference<>() {});
+    }
+
+    public PreparedLaunchStatus startLaunchPreparedAsync(LaunchRequest request) {
+        return send("launch-prepared/start", "POST", request, new TypeReference<>() {});
+    }
+
+    public PreparedLaunchStatus getLaunchPreparedStatus(String operationId) {
+        return send("launch-prepared/" + operationId, "GET", null, new TypeReference<>() {});
     }
 
     public DownloadStatus startDownload(String target) {

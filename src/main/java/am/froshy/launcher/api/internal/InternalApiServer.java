@@ -53,6 +53,8 @@ public final class InternalApiServer {
         server.createContext("/internal/v1/health",           exchange -> withErrorHandling(exchange, this::handleHealth));
         server.createContext("/internal/v1/profiles",         exchange -> withErrorHandling(exchange, this::handleProfiles));
         server.createContext("/internal/v1/launch",           exchange -> withErrorHandling(exchange, this::handleLaunch));
+        server.createContext("/internal/v1/launch-prepared",  exchange -> withErrorHandling(exchange, this::handleLaunchPrepared));
+        server.createContext("/internal/v1/launch-prepared/start", exchange -> withErrorHandling(exchange, this::handleLaunchPreparedStart));
         server.createContext("/internal/v1/downloads",        exchange -> withErrorHandling(exchange, this::handleDownloads));
         server.createContext("/internal/v1/updates/check",    exchange -> withErrorHandling(exchange, this::handleUpdateCheck));
         server.createContext("/internal/v1/versions/prepare", exchange -> withErrorHandling(exchange, this::handlePrepareVersion));
@@ -126,6 +128,38 @@ public final class InternalApiServer {
             }
         }
         return defaultVal;
+    }
+
+    private void handleLaunchPrepared(HttpExchange exchange) throws IOException {
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+
+        if ("POST".equalsIgnoreCase(method) && "/internal/v1/launch-prepared".equals(path)) {
+            LaunchRequest request = readBody(exchange, LaunchRequest.class);
+            sendJson(exchange, 202, launcherService.prepareAndLaunch(request));
+            return;
+        }
+
+        if ("GET".equalsIgnoreCase(method) && path.startsWith("/internal/v1/launch-prepared/")) {
+            String opId = path.substring("/internal/v1/launch-prepared/".length());
+            launcherService.getPreparedLaunchStatus(opId)
+                    .ifPresentOrElse(
+                            status -> sendJsonUnchecked(exchange, 200, status),
+                            () -> sendJsonUnchecked(exchange, 404, Map.of("error", "Operacion no encontrada"))
+                    );
+            return;
+        }
+
+        sendMethodNotAllowed(exchange, List.of("POST", "GET"));
+    }
+
+    private void handleLaunchPreparedStart(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        LaunchRequest request = readBody(exchange, LaunchRequest.class);
+        sendJson(exchange, 202, launcherService.startPreparedLaunch(request));
     }
 
     private void handleDownloads(HttpExchange exchange) throws IOException {

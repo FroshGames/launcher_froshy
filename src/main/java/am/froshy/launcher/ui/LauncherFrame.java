@@ -1,10 +1,9 @@
 package am.froshy.launcher.ui;
 import am.froshy.launcher.api.internal.InternalApiClient;
-import am.froshy.launcher.domain.DownloadStatus;
 import am.froshy.launcher.domain.LaunchRequest;
-import am.froshy.launcher.domain.LaunchResult;
 import am.froshy.launcher.domain.LauncherUpdateStatus;
 import am.froshy.launcher.domain.MinecraftProfile;
+import am.froshy.launcher.domain.PreparedLaunchStatus;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -19,6 +18,9 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 /** Launcher UI - diseño cyberpunk/neon inspirado en imagen de referencia. */
 public final class LauncherFrame extends JFrame {
+    private static final int MAX_CONSOLE_LINES = 2500;
+    private static final int TRIM_TO_LINES = 1800;
+
     static final Color C_BG      = new Color(0x08, 0x08, 0x1a);
     static final Color C_SIDEBAR = new Color(0x09, 0x09, 0x1c);
     static final Color C_CYAN    = new Color(0x00, 0xe5, 0xff);
@@ -37,11 +39,16 @@ public final class LauncherFrame extends JFrame {
     private final JTextField idField       = new JTextField();
     private final JTextField nameField     = new JTextField();
     private final JTextField versionField  = new JTextField("1.20.1");
+    private final JTextField loaderTypeField = new JTextField("VANILLA");
+    private final JTextField loaderVersionField = new JTextField("");
+    private final JTextField modpackPathField = new JTextField("");
     private final JTextField jvmArgsField  = new JTextField("-Xmx2G");
     private final JTextField gameArgsField = new JTextField("--username Steve");
     private final JTextArea  outputArea    = new JTextArea();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
+    private final JProgressBar phaseProgressBar = new JProgressBar(0, 100);
     private final JLabel statusLbl = new JLabel("Listo");
+    private final JLabel phaseLbl = new JLabel("IDLE");
     private final JLabel healthLbl = new JLabel("\u25CF API");
     private final JLabel updateLbl = new JLabel("");
     // Estado del juego en ejecución
@@ -281,12 +288,30 @@ public final class LauncherFrame extends JFrame {
         progressBar.setOpaque(true); progressBar.setBackground(new Color(0x0a, 0x0a, 0x20));
         progressBar.setForeground(C_CYAN); progressBar.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
         progressBar.setPreferredSize(new Dimension(0, 18));
+
+        phaseProgressBar.setStringPainted(true); phaseProgressBar.setValue(0);
+        phaseProgressBar.setString("Etapa: 0%");
+        phaseProgressBar.setOpaque(true); phaseProgressBar.setBackground(new Color(0x0a, 0x0a, 0x20));
+        phaseProgressBar.setForeground(C_MAGENTA); phaseProgressBar.setBorder(BorderFactory.createLineBorder(new Color(0x66, 0x33, 0x99), 1));
+        phaseProgressBar.setPreferredSize(new Dimension(0, 14));
+
+        phaseLbl.setOpaque(true);
+        phaseLbl.setBackground(new Color(0x1a, 0x1a, 0x33));
+        phaseLbl.setForeground(C_DIM);
+        phaseLbl.setFont(new Font("Dialog", Font.BOLD, 10));
+        phaseLbl.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(0x33, 0x33, 0x66), 1),
+                BorderFactory.createEmptyBorder(1, 6, 1, 6)
+        ));
+
         healthLbl.setFont(new Font("Dialog", Font.PLAIN, 10)); healthLbl.setForeground(C_GREEN);
         updateLbl.setFont(new Font("Dialog", Font.PLAIN, 10)); updateLbl.setForeground(C_DIM);
         JPanel infoRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0)); infoRow.setOpaque(false);
-        infoRow.add(healthLbl); infoRow.add(updateLbl);
+        infoRow.add(healthLbl); infoRow.add(updateLbl); infoRow.add(phaseLbl);
         JPanel bottomGroup = new JPanel(new BorderLayout(4, 2)); bottomGroup.setOpaque(false);
-        bottomGroup.add(progressBar, BorderLayout.CENTER); bottomGroup.add(infoRow, BorderLayout.SOUTH);
+        bottomGroup.add(progressBar, BorderLayout.NORTH);
+        bottomGroup.add(phaseProgressBar, BorderLayout.CENTER);
+        bottomGroup.add(infoRow, BorderLayout.SOUTH);
         panel.add(selTitle,    BorderLayout.NORTH);
         panel.add(scroll,      BorderLayout.CENTER);
         panel.add(bottomGroup, BorderLayout.SOUTH);
@@ -301,6 +326,9 @@ public final class LauncherFrame extends JFrame {
         addFormField(form, "ID:",        idField);
         addFormField(form, "Nombre:",    nameField);
         addFormField(form, "Version:",   versionField);
+        addFormField(form, "Loader:",    loaderTypeField);
+        addFormField(form, "Ver. Loader:", loaderVersionField);
+        addFormField(form, "Modpack (.mrpack/.zip):", modpackPathField);
         addFormField(form, "JVM Args:",  jvmArgsField);
         addFormField(form, "Game Args:", gameArgsField);
         JButton createBtn  = buildNeonBtn("Crear Perfil",  C_CYAN,   120, 28);
@@ -497,7 +525,10 @@ public final class LauncherFrame extends JFrame {
             return;
         }
         MinecraftProfile profile = new MinecraftProfile(id, name, "java", versionField.getText().trim(),
-                splitArgs(jvmArgsField.getText()), splitArgs(gameArgsField.getText()));
+                splitArgs(jvmArgsField.getText()), splitArgs(gameArgsField.getText()),
+                loaderTypeField.getText().trim().isBlank() ? "VANILLA" : loaderTypeField.getText().trim().toUpperCase(),
+                loaderVersionField.getText().trim(),
+                modpackPathField.getText().trim());
         runAsync(() -> {
             MinecraftProfile created = apiClient.createProfile(profile);
             SwingUtilities.invokeLater(() -> {
@@ -516,40 +547,83 @@ public final class LauncherFrame extends JFrame {
             return;
         }
         setLaunchEnabled(false);
-        updateStatus("Preparando v" + sel.gameVersion() + "…", 0);
+        setPhaseState("PREPARING");
+        updatePhaseProgress(0, "Etapa: preparando");
+        updateStatus("Preparando y lanzando v" + sel.gameVersion() + "...", 0);
         appendOutput("=== Iniciando: " + sel.displayName() + " [" + sel.gameVersion() + "] ===");
-        // Cambiar a consola para ver el progreso de descarga
+        // Mostrar consola para ver el progreso en tiempo real
         contentCards.show(contentStack, "CONSOLE");
 
         runAsync(() -> {
-            // Fase 1: preparar/descargar versión
-            SwingUtilities.invokeLater(() ->
-                    appendOutput(">>> Preparando versión " + sel.gameVersion() + "…"));
-            DownloadStatus ds = apiClient.prepareVersion(sel.gameVersion());
-            try { waitForPrep(ds.downloadId()); }
-            catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrumpido durante descarga", ex);
-            }
+            SwingUtilities.invokeLater(() -> appendOutput("[Launcher] Preparando archivos y lanzando Minecraft " + sel.gameVersion() + "..."));
+            PreparedLaunchStatus operation = apiClient.startLaunchPreparedAsync(new LaunchRequest(sel.id(), false));
 
-            // Fase 2: lanzar el juego
-            SwingUtilities.invokeLater(() ->
-                    appendOutput(">>> Versión lista. Lanzando Minecraft…"));
-            LaunchResult result = apiClient.launch(new LaunchRequest(sel.id(), false));
+            String launchId;
+            try {
+                launchId = waitForPreparedLaunch(operation.operationId(), sel);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrumpido", ex);
+            }
 
             SwingUtilities.invokeLater(() -> {
                 gameRunning      = true;
-                currentLaunchId  = result.launchId();
+                currentLaunchId  = launchId;
                 lastOutputIdx    = 0;
-                updateStatus("Minecraft en ejecución ●", 100);
-                appendOutput(">>> ¡Minecraft lanzado! [ID=" + result.launchId() + "]");
+                setPhaseState("RUNNING");
+                updatePhaseProgress(100, "Etapa: juego en ejecucion");
+                updateStatus("Minecraft en ejecucion \u25CF", 100);
+                appendOutput(">>> Minecraft lanzado! ID=" + launchId);
+                appendOutput("--------------------------------------------------");
                 // Repintar botones para mostrar "RUNNING"
                 if (launchBtn != null) launchBtn.repaint();
                 if (playBtn   != null) playBtn.repaint();
-                // Iniciar polling de output del proceso
-                startOutputPolling(result.launchId());
+                // Iniciar polling de output
+                startOutputPolling(launchId);
             });
         });
+    }
+
+    private String waitForPreparedLaunch(String operationId, MinecraftProfile profile) throws InterruptedException {
+        int lastProgress = -1;
+        String lastMessage = "";
+
+        while (true) {
+            PreparedLaunchStatus status = apiClient.getLaunchPreparedStatus(operationId);
+            boolean progressChanged = status.progress() != lastProgress;
+            boolean messageChanged = status.message() != null && !status.message().equals(lastMessage);
+
+            if (progressChanged || messageChanged) {
+                lastProgress = status.progress();
+                lastMessage = status.message() == null ? "" : status.message();
+                String text = lastMessage.isBlank()
+                        ? ("Preparando y lanzando " + profile.gameVersion() + "...")
+                        : lastMessage;
+                int progress = Math.max(0, Math.min(status.progress(), 100));
+                int phaseProgress = mapPhaseProgress(status.state(), progress);
+                SwingUtilities.invokeLater(() -> {
+                    setPhaseState(status.state());
+                    updatePhaseProgress(phaseProgress, "Etapa: " + normalizePhase(status.state()) + " " + phaseProgress + "%");
+                    updateStatus(text, progress);
+                    if (messageChanged && !text.isBlank()) {
+                        appendOutput("[Launcher] " + text);
+                    }
+                });
+            }
+
+            if ("DONE".equals(status.state())) {
+                if (status.launchId() == null || status.launchId().isBlank()) {
+                    throw new IllegalStateException("La operacion termino sin launchId");
+                }
+                return status.launchId();
+            }
+
+            if ("FAILED".equals(status.state())) {
+                throw new IllegalStateException(status.message() == null ? "Fallo la preparacion" : status.message());
+            }
+
+            Thread.sleep(300);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -565,7 +639,7 @@ public final class LauncherFrame extends JFrame {
                 if (lines != null && !lines.isEmpty()) {
                     lastOutputIdx = total;
                     SwingUtilities.invokeLater(() -> {
-                        for (String line : lines) appendOutput(line);
+                        appendOutputBatch(lines);
                         // Auto-scroll al final
                         outputArea.setCaretPosition(outputArea.getDocument().getLength());
                     });
@@ -577,6 +651,8 @@ public final class LauncherFrame extends JFrame {
                     SwingUtilities.invokeLater(() -> {
                         gameRunning     = false;
                         currentLaunchId = null;
+                            setPhaseState("IDLE");
+                            updatePhaseProgress(0, "Etapa: inactiva");
                         appendOutput("=== Minecraft ha terminado ===");
                         updateStatus("Listo", 0);
                         setLaunchEnabled(true);
@@ -594,29 +670,6 @@ public final class LauncherFrame extends JFrame {
             outputPoll = null;
         }
     }
-    private void waitForPrep(String downloadId) throws InterruptedException {
-        int last = -1;
-        String lastMsg = "";
-        while (true) {
-            DownloadStatus s = apiClient.getDownloadStatus(downloadId);
-            String msg = (s.message() != null && !s.message().isBlank()) ? s.message() : "";
-            if (s.progress() != last || !msg.equals(lastMsg)) {
-                last    = s.progress();
-                lastMsg = msg;
-                String txt = msg.isEmpty()
-                        ? s.target() + " → " + s.state() + " (" + s.progress() + "%)"
-                        : msg + " (" + s.progress() + "%)";
-                int prog = s.progress();
-                SwingUtilities.invokeLater(() -> updateStatus(txt, prog));
-            }
-            if ("DONE".equals(s.state()))   return;
-            if ("FAILED".equals(s.state())) {
-                String reason = msg.isEmpty() ? s.target() : msg;
-                throw new IllegalStateException("Descarga fallida: " + reason);
-            }
-            Thread.sleep(350);
-        }
-    }
     private void setLaunchEnabled(boolean enabled) {
         if (launchBtn != null) launchBtn.setEnabled(enabled);
         if (playBtn   != null) playBtn.setEnabled(enabled);
@@ -625,11 +678,76 @@ public final class LauncherFrame extends JFrame {
         statusLbl.setText(text);
         progressBar.setValue(Math.max(0, Math.min(prog, 100)));
     }
+
+    private void updatePhaseProgress(int progress, String text) {
+        phaseProgressBar.setValue(Math.max(0, Math.min(progress, 100)));
+        phaseProgressBar.setString(text == null || text.isBlank() ? ("Etapa: " + phaseProgressBar.getValue() + "%") : text);
+    }
+
+    private void setPhaseState(String state) {
+        String norm = normalizePhase(state);
+        phaseLbl.setText(norm);
+        switch (norm) {
+            case "PREPARING" -> {
+                phaseLbl.setForeground(C_CYAN);
+                phaseLbl.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(0x00, 0x77, 0x99), 1),
+                        BorderFactory.createEmptyBorder(1, 6, 1, 6)
+                ));
+            }
+            case "STARTING" -> {
+                phaseLbl.setForeground(C_MAGENTA);
+                phaseLbl.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(0x88, 0x33, 0xaa), 1),
+                        BorderFactory.createEmptyBorder(1, 6, 1, 6)
+                ));
+            }
+            case "RUNNING", "DONE" -> {
+                phaseLbl.setForeground(C_GREEN);
+                phaseLbl.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(0x00, 0x66, 0x33), 1),
+                        BorderFactory.createEmptyBorder(1, 6, 1, 6)
+                ));
+            }
+            case "FAILED" -> {
+                phaseLbl.setForeground(new Color(0xff, 0x66, 0x66));
+                phaseLbl.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(0xaa, 0x22, 0x22), 1),
+                        BorderFactory.createEmptyBorder(1, 6, 1, 6)
+                ));
+            }
+            default -> {
+                phaseLbl.setForeground(C_DIM);
+                phaseLbl.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(new Color(0x33, 0x33, 0x66), 1),
+                        BorderFactory.createEmptyBorder(1, 6, 1, 6)
+                ));
+            }
+        }
+    }
+
+    private String normalizePhase(String phase) {
+        if (phase == null || phase.isBlank()) return "IDLE";
+        return phase.trim().toUpperCase();
+    }
+
+    private int mapPhaseProgress(String phase, int totalProgress) {
+        String norm = normalizePhase(phase);
+        return switch (norm) {
+            case "PREPARING" -> Math.max(1, Math.min(100, totalProgress * 100 / 90));
+            case "STARTING" -> Math.max(10, Math.min(100, (totalProgress - 90) * 10));
+            case "RUNNING", "DONE" -> 100;
+            case "FAILED" -> 0;
+            default -> Math.max(0, Math.min(100, totalProgress));
+        };
+    }
     private void runAsync(Runnable r) {
         executor.submit(() -> {
             try { r.run(); }
             catch (Exception ex) {
                 SwingUtilities.invokeLater(() -> {
+                    setPhaseState("FAILED");
+                    updatePhaseProgress(0, "Etapa: error");
                     updateStatus("Error: " + ex.getMessage(), 0);
                     appendOutput("ERROR: " + ex.getMessage());
                     setLaunchEnabled(true);
@@ -637,9 +755,41 @@ public final class LauncherFrame extends JFrame {
             }
         });
     }
+
     private void appendOutput(String msg) {
-        SwingUtilities.invokeLater(() -> outputArea.append(msg + System.lineSeparator()));
+        if (SwingUtilities.isEventDispatchThread()) {
+            outputArea.append(msg + System.lineSeparator());
+            trimConsoleIfNeeded();
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            outputArea.append(msg + System.lineSeparator());
+            trimConsoleIfNeeded();
+        });
     }
+
+    private void appendOutputBatch(List<String> lines) {
+        if (lines == null || lines.isEmpty()) return;
+        StringBuilder sb = new StringBuilder(lines.size() * 40);
+        for (String line : lines) {
+            sb.append(line).append(System.lineSeparator());
+        }
+        outputArea.append(sb.toString());
+        trimConsoleIfNeeded();
+    }
+
+    private void trimConsoleIfNeeded() {
+        int lineCount = outputArea.getLineCount();
+        if (lineCount <= MAX_CONSOLE_LINES) return;
+        try {
+            int cutLine = Math.max(1, lineCount - TRIM_TO_LINES);
+            int endOffset = outputArea.getLineEndOffset(cutLine - 1);
+            outputArea.replaceRange("", 0, endOffset);
+        } catch (Exception ignored) {
+            // Si falla el recorte por offsets, no interrumpimos la UI.
+        }
+    }
+
     private List<String> splitArgs(String raw) {
         if (raw == null || raw.isBlank()) return List.of();
         return Arrays.stream(raw.trim().split("\\s+")).filter(t -> !t.isBlank()).toList();

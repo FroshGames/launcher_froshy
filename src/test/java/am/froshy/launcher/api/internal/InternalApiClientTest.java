@@ -4,10 +4,9 @@ import am.froshy.launcher.application.LauncherService;
 import am.froshy.launcher.application.LauncherUpdateService;
 import am.froshy.launcher.application.MinecraftVersionDownloader;
 import am.froshy.launcher.config.LauncherConfig;
-import am.froshy.launcher.domain.DownloadStatus;
 import am.froshy.launcher.domain.LaunchRequest;
-import am.froshy.launcher.domain.LaunchResult;
 import am.froshy.launcher.domain.MinecraftProfile;
+import am.froshy.launcher.domain.PreparedLaunchStatus;
 import am.froshy.launcher.infrastructure.ProfileStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -58,7 +57,7 @@ class InternalApiClientTest {
     Path tempDir;
 
     @Test
-    void shouldCreateProfileAndLaunchThroughApi() throws Exception {
+    void shouldCreateProfileAndLaunchThroughApi() throws InterruptedException {
         LauncherConfig config = new LauncherConfig(
                 tempDir,
                 tempDir.resolve("profiles.json"),
@@ -85,26 +84,29 @@ class InternalApiClientTest {
                     "java",
                     "1.20.1",
                     List.of("-Xmx2G"),
-                    List.of("--username", "Alex")
+                    List.of("--username", "Alex"),
+                    "VANILLA",
+                    "",
+                    ""
             ));
 
             assertEquals("builder", created.id());
             assertEquals(1, client.listProfiles().size());
 
-            DownloadStatus preparation = client.prepareVersion("1.20.1");
-            DownloadStatus status = preparation;
+            PreparedLaunchStatus op = client.startLaunchPreparedAsync(new LaunchRequest("builder", false));
+            assertNotNull(op.operationId());
+
+            PreparedLaunchStatus status = op;
             int attempts = 0;
-            while (!"DONE".equals(status.state()) && attempts < 10) {
+            while (!"DONE".equals(status.state()) && attempts < 40) {
                 Thread.sleep(100);
-                status = client.getDownloadStatus(preparation.downloadId());
+                status = client.getLaunchPreparedStatus(op.operationId());
                 attempts++;
             }
 
             assertEquals("DONE", status.state());
-
-            LaunchResult launch = client.launch(new LaunchRequest("builder", false));
-            assertNotNull(launch.launchId());
-            assertTrue(launch.commandLine().contains("1.20.1.jar"));
+            assertNotNull(status.launchId());
+            assertTrue(client.isGameAlive(status.launchId()));
         } finally {
             server.stop();
         }
