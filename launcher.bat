@@ -8,7 +8,7 @@ setlocal enabledelayedexpansion
 
 REM Obtener el directorio del script
 set SCRIPT_DIR=%~dp0
-set JAR_FILE=%SCRIPT_DIR%target\launcher-1.0-SNAPSHOT.jar
+set JAR_FILE=%SCRIPT_DIR%target\launcher.jar
 
 REM Intentar encontrar Java (primero local, luego del sistema)
 set JAVA_EXE=java.exe

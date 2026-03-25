@@ -44,6 +44,10 @@ public final class InternalApiClient {
         return send("profiles", "POST", profile, new TypeReference<>() {});
     }
 
+    public MinecraftProfile updateProfile(String existingId, MinecraftProfile profile) {
+        return send("profiles/" + existingId, "PUT", profile, new TypeReference<>() {});
+    }
+
     public LaunchResult launch(LaunchRequest request) {
         return send("launch", "POST", request, new TypeReference<>() {});
     }
@@ -74,6 +78,18 @@ public final class InternalApiClient {
 
     public DownloadStatus prepareVersion(String version) {
         return send("versions/prepare", "POST", Map.of("version", version), new TypeReference<>() {});
+    }
+
+    public String getModpackCompatibilityMode() {
+        Map<String, Object> response = send("settings/modpack-compat", "GET", null, new TypeReference<>() {});
+        Object mode = response.get("mode");
+        return mode == null ? "BOTH" : mode.toString();
+    }
+
+    public String setModpackCompatibilityMode(String mode) {
+        Map<String, Object> response = send("settings/modpack-compat", "POST", Map.of("mode", mode), new TypeReference<>() {});
+        Object applied = response.get("mode");
+        return applied == null ? "BOTH" : applied.toString();
     }
 
     public Map<String, Object> getGameOutput(String launchId, int fromIndex) {

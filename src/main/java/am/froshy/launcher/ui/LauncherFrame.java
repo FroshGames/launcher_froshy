@@ -8,9 +8,13 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.GeneralPath;
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -32,16 +36,19 @@ public final class LauncherFrame extends JFrame {
     static final Color C_CONSOLE = new Color(0x03, 0x03, 0x12);
     private final InternalApiClient apiClient;
     private final Runnable onClose;
+    private final String launcherVersion;
     private final ExecutorService          executor  = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService uiSched   = Executors.newSingleThreadScheduledExecutor();
     private final DefaultListModel<MinecraftProfile> profilesModel = new DefaultListModel<>();
     private final JList<MinecraftProfile> profilesList = new JList<>(profilesModel);
     private final JTextField idField       = new JTextField();
     private final JTextField nameField     = new JTextField();
-    private final JTextField versionField  = new JTextField("1.20.1");
-    private final JTextField loaderTypeField = new JTextField("VANILLA");
-    private final JTextField loaderVersionField = new JTextField("");
+    private final JComboBox<String> versionField = new JComboBox<>(new String[]{"1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.2", "1.18.2", "1.16.5", "1.12.2"});
+    private final JComboBox<String> loaderTypeField = new JComboBox<>(new String[]{"VANILLA", "FORGE", "NEOFORGE", "FABRIC", "QUILT"});
+    private final JComboBox<String> loaderVersionField = new JComboBox<>(new String[]{"", "latest"});
     private final JTextField modpackPathField = new JTextField("");
+    private final JComboBox<String> modpackCompatField = new JComboBox<>(new String[]{"BOTH", "MODRINTH_ONLY", "CURSEFORGE_ONLY"});
+    private final JList<MinecraftProfile> profilesEditorList = new JList<>(profilesModel);
     private final JTextField jvmArgsField  = new JTextField("-Xmx2G");
     private final JTextField gameArgsField = new JTextField("--username Steve");
     private final JTextArea  outputArea    = new JTextArea();
@@ -58,13 +65,18 @@ public final class LauncherFrame extends JFrame {
     private          ScheduledFuture<?> outputPoll  = null;
     private JButton    launchBtn;
     private JButton    playBtn;
+    private JButton    saveBtn;
+    private boolean    suppressComboEvents = false;
+    private String     editingProfileId = null;
     private JPanel     contentStack;
     private CardLayout contentCards;
     private Point      dragOrigin;
-    public LauncherFrame(InternalApiClient apiClient, int apiPort, Runnable onClose) {
+    private JButton    profilesPlayBtn;
+    public LauncherFrame(InternalApiClient apiClient, int apiPort, String launcherVersion, Runnable onClose) {
         super();
-        this.apiClient = apiClient;
-        this.onClose   = onClose;
+        this.apiClient       = apiClient;
+        this.onClose         = onClose;
+        this.launcherVersion = launcherVersion != null ? launcherVersion : "?";
         buildUi();
         refreshProfiles();
         refreshHealth();
@@ -224,7 +236,7 @@ public final class LauncherFrame extends JFrame {
         supportLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         supportLink.setBorder(BorderFactory.createEmptyBorder(0,0,0,2));
         JPanel statusRow = new JPanel(new BorderLayout()); statusRow.setOpaque(false);
-        JLabel verLbl = new JLabel("  Froshy Launcher v1.0.0");
+        JLabel verLbl = new JLabel("  Froshy Launcher v" + launcherVersion);
         verLbl.setFont(new Font("Dialog", Font.PLAIN, 9)); verLbl.setForeground(C_DIM);
         statusLbl.setFont(new Font("Dialog", Font.PLAIN, 9)); statusLbl.setForeground(C_GREEN);
         statusLbl.setBorder(BorderFactory.createEmptyBorder(0,0,0,4));
@@ -318,28 +330,89 @@ public final class LauncherFrame extends JFrame {
         return panel;
     }
     private JPanel buildProfilesCard() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8)); panel.setOpaque(false);
+        JPanel panel = new JPanel(new BorderLayout(10, 8)); panel.setOpaque(false);
         panel.setBorder(BorderFactory.createEmptyBorder(12, 14, 10, 14));
+
         JLabel title = new JLabel("GESTION DE PERFILES");
         title.setFont(new Font("Dialog", Font.BOLD, 13)); title.setForeground(C_CYAN);
-        JPanel form = new JPanel(new GridLayout(0, 2, 8, 6)); form.setOpaque(false);
-        addFormField(form, "ID:",        idField);
-        addFormField(form, "Nombre:",    nameField);
-        addFormField(form, "Version:",   versionField);
-        addFormField(form, "Loader:",    loaderTypeField);
+
+        JPanel split = new JPanel(new GridLayout(1, 2, 10, 0));
+        split.setOpaque(false);
+
+        JPanel left = new JPanel(new BorderLayout(6, 6));
+        left.setOpaque(false);
+        left.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+
+        JPanel form = new JPanel(new GridLayout(0, 1, 0, 6));
+        form.setOpaque(false);
+        form.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        addFormField(form, "ID:", idField);
+        addFormField(form, "Nombre:", nameField);
+        addFormField(form, "Version:", versionField);
+        addFormField(form, "Loader:", loaderTypeField);
         addFormField(form, "Ver. Loader:", loaderVersionField);
-        addFormField(form, "Modpack (.mrpack/.zip):", modpackPathField);
-        addFormField(form, "JVM Args:",  jvmArgsField);
+        addFormField(form, "Modpack (.mrpack/.zip):", buildModpackPickerField());
+        addFormField(form, "JVM Args:", jvmArgsField);
         addFormField(form, "Game Args:", gameArgsField);
-        JButton createBtn  = buildNeonBtn("Crear Perfil",  C_CYAN,   120, 28);
-        JButton refreshBtn = buildNeonBtn("Refrescar",     C_BORDER, 100, 28);
-        createBtn.addActionListener(e  -> createProfile());
+        addFormField(form, "Compat. modpacks:", modpackCompatField);
+        left.add(form, BorderLayout.CENTER);
+
+        JPanel right = new JPanel(new BorderLayout(6, 6));
+        right.setOpaque(false);
+        right.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+        profilesEditorList.setOpaque(true);
+        profilesEditorList.setBackground(new Color(0x08, 0x08, 0x1e));
+        profilesEditorList.setForeground(C_TEXT);
+        profilesEditorList.setSelectionBackground(new Color(0x18, 0x18, 0x40));
+        profilesEditorList.setSelectionForeground(C_CYAN);
+        profilesEditorList.setFont(new Font("Dialog", Font.PLAIN, 11));
+        profilesEditorList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        profilesEditorList.setFixedCellHeight(58);
+        profilesEditorList.setCellRenderer(new ProfileEditorRenderer());
+        profilesEditorList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                MinecraftProfile p = profilesEditorList.getSelectedValue();
+                if (p != null) {
+                    loadProfileIntoForm(p);
+                    profilesList.setSelectedValue(p, true);
+                }
+            }
+        });
+        JScrollPane editorScroll = new JScrollPane(profilesEditorList);
+        editorScroll.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+        editorScroll.getViewport().setBackground(new Color(0x08, 0x08, 0x1e));
+        right.add(editorScroll, BorderLayout.CENTER);
+
+        split.add(left);
+        split.add(right);
+
+        profilesPlayBtn = buildNeonBtn("PLAY", C_CYAN, 120, 40);
+        profilesPlayBtn.setFont(new Font("Dialog", Font.BOLD, 24));
+        profilesPlayBtn.addActionListener(e -> launchSelectedProfile());
+
+        JButton newBtn = buildNeonBtn("Nuevo perfil", C_CYAN, 140, 30);
+        saveBtn = buildNeonBtn("GUARDAR CAMBIOS", C_MAGENTA, 210, 38);
+        JButton refreshBtn = buildNeonBtn("Refrescar", C_BORDER, 110, 30);
+        newBtn.addActionListener(e -> startCreateProfileMode());
+        saveBtn.addActionListener(e -> upsertProfile());
         refreshBtn.addActionListener(e -> refreshProfiles());
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0)); btnRow.setOpaque(false);
-        btnRow.add(refreshBtn); btnRow.add(createBtn);
-        panel.add(title,  BorderLayout.NORTH);
-        panel.add(form,   BorderLayout.CENTER);
+        modpackCompatField.addActionListener(e -> updateModpackCompatibilityFromUi());
+        versionField.addActionListener(e -> refreshLoaderSuggestions());
+        loaderTypeField.addActionListener(e -> refreshLoaderSuggestions());
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        btnRow.setOpaque(false);
+        btnRow.add(refreshBtn);
+        btnRow.add(newBtn);
+        btnRow.add(profilesPlayBtn);
+        btnRow.add(saveBtn);
+
+        panel.add(title, BorderLayout.NORTH);
+        panel.add(split, BorderLayout.CENTER);
         panel.add(btnRow, BorderLayout.SOUTH);
+
+        refreshLoaderSuggestions();
+        loadModpackCompatibility();
         return panel;
     }
     private JPanel buildConsoleCard() {
@@ -419,6 +492,7 @@ public final class LauncherFrame extends JFrame {
     private JButton buildNeonBtn(String text, Color accent, int w, int h) {
         // Para PLAY y LAUNCH: refleja estado gameRunning
         boolean isPlayBtn = "PLAY".equals(text) || "LAUNCH MINECRAFT".equals(text);
+        boolean isStrongCta = "PLAY".equals(text) || "GUARDAR CAMBIOS".equals(text) || "CREAR PERFIL".equals(text);
         JButton btn = new JButton(text) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -430,11 +504,23 @@ public final class LauncherFrame extends JFrame {
                         : getModel().isRollover()
                                 ? new Color(Math.min(255,r/3), Math.min(255,gn/3), Math.min(255,b/3))
                                 : new Color(r/7, gn/7, b/7);
-                g2.setColor(base); g2.fillRoundRect(0,0,getWidth(),getHeight(),8,8);
-                g2.setColor(new Color(r,gn,b,50)); g2.setStroke(new BasicStroke(5f));
-                g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,10,10);
+                int radius = isStrongCta ? 10 : 8;
+                if (isStrongCta) {
+                    GradientPaint gp = new GradientPaint(0, 0,
+                            new Color(Math.max(0, r / 8), Math.max(0, gn / 8), Math.max(0, b / 8)),
+                            getWidth(), getHeight(),
+                            new Color(Math.max(0, r / 4), Math.max(0, gn / 4), Math.max(0, b / 4)));
+                    g2.setPaint(gp);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+                } else {
+                    g2.setColor(base);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+                }
+
+                g2.setColor(new Color(r,gn,b,isStrongCta ? 75 : 50)); g2.setStroke(new BasicStroke(isStrongCta ? 6f : 5f));
+                g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,radius + 2,radius + 2);
                 g2.setColor(eff); g2.setStroke(new BasicStroke(2f));
-                g2.drawRoundRect(1,1,getWidth()-3,getHeight()-3,7,7);
+                g2.drawRoundRect(1,1,getWidth()-3,getHeight()-3,radius,radius);
                 // Texto dinámico
                 String displayText = (isPlayBtn && gameRunning) ? "RUNNING" : getText();
                 g2.setColor(C_TEXT); g2.setFont(getFont()); FontMetrics fm = g2.getFontMetrics();
@@ -489,7 +575,12 @@ public final class LauncherFrame extends JFrame {
             SwingUtilities.invokeLater(() -> {
                 profilesModel.clear();
                 profiles.forEach(profilesModel::addElement);
-                if (!profiles.isEmpty()) profilesList.setSelectedIndex(0);
+                if (!profiles.isEmpty()) {
+                    profilesList.setSelectedIndex(0);
+                    profilesEditorList.setSelectedIndex(0);
+                } else {
+                    startCreateProfileMode();
+                }
                 appendOutput("Perfiles cargados: " + profiles.size());
             });
         });
@@ -518,25 +609,184 @@ public final class LauncherFrame extends JFrame {
             });
         });
     }
-    private void createProfile() {
-        String id = idField.getText().trim(), name = nameField.getText().trim();
-        if (id.isEmpty() || name.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "ID y nombre son obligatorios", "Validacion", JOptionPane.WARNING_MESSAGE);
+    private void upsertProfile() {
+        boolean creating = editingProfileId == null;
+        String formId = idField.getText().trim();
+        String effectiveId = creating ? formId : editingProfileId;
+        String name = nameField.getText().trim();
+
+        if (name.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "El nombre es obligatorio", "Validacion", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        MinecraftProfile profile = new MinecraftProfile(id, name, "java", versionField.getText().trim(),
+        if (creating && effectiveId.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "El ID es obligatorio al crear un perfil", "Validacion", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        MinecraftProfile profile = new MinecraftProfile(effectiveId, name, "java", selectedComboValue(versionField, "1.20.1"),
                 splitArgs(jvmArgsField.getText()), splitArgs(gameArgsField.getText()),
-                loaderTypeField.getText().trim().isBlank() ? "VANILLA" : loaderTypeField.getText().trim().toUpperCase(),
-                loaderVersionField.getText().trim(),
+                selectedComboValue(loaderTypeField, "VANILLA"),
+                selectedComboValue(loaderVersionField, ""),
                 modpackPathField.getText().trim());
         runAsync(() -> {
-            MinecraftProfile created = apiClient.createProfile(profile);
+            MinecraftProfile saved = creating
+                    ? apiClient.createProfile(profile)
+                    : apiClient.updateProfile(editingProfileId, profile);
             SwingUtilities.invokeLater(() -> {
-                appendOutput("Perfil creado: " + created.id());
+                appendOutput((creating ? "Perfil creado: " : "Perfil actualizado: ") + saved.id());
                 refreshProfiles();
                 contentCards.show(contentStack, "HOME");
             });
         });
+    }
+
+    private JPanel buildModpackPickerField() {
+        JPanel row = new JPanel(new BorderLayout(6, 0));
+        row.setOpaque(false);
+        modpackPathField.setBackground(new Color(0x08, 0x08, 0x22));
+        modpackPathField.setForeground(C_TEXT);
+        modpackPathField.setCaretColor(C_TEXT);
+        modpackPathField.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+
+        JButton browseBtn = buildNeonBtn("...", C_BORDER, 36, 24);
+        browseBtn.addActionListener(e -> chooseModpackFile());
+        row.add(modpackPathField, BorderLayout.CENTER);
+        row.add(browseBtn, BorderLayout.EAST);
+        return row;
+    }
+
+    private void chooseModpackFile() {
+        ModpackFileChooser chooser = new ModpackFileChooser(this);
+        File selected = chooser.showDialog();
+        if (selected != null) {
+            modpackPathField.setText(selected.getAbsolutePath());
+        }
+    }
+
+    private void loadProfileIntoForm(MinecraftProfile p) {
+        editingProfileId = p.id();
+        idField.setText(p.id());
+        idField.setEditable(false);
+        nameField.setText(p.displayName());
+        versionField.setSelectedItem(p.gameVersion());
+        loaderTypeField.setSelectedItem(p.loaderType());
+        loaderVersionField.setEditable(true);
+        loaderVersionField.setSelectedItem(p.loaderVersion());
+        jvmArgsField.setText(String.join(" ", p.jvmArgs()));
+        gameArgsField.setText(String.join(" ", p.gameArgs()));
+        modpackPathField.setText(p.modpackPath());
+        refreshLoaderSuggestions();
+        if (saveBtn != null) { saveBtn.setText("GUARDAR CAMBIOS"); saveBtn.repaint(); }
+    }
+
+    private void startCreateProfileMode() {
+        editingProfileId = null;
+        profilesEditorList.clearSelection();
+        idField.setEditable(true);
+        idField.setText("");
+        nameField.setText("");
+        versionField.setSelectedItem("1.20.1");
+        loaderTypeField.setSelectedItem("VANILLA");
+        loaderVersionField.setSelectedItem("");
+        jvmArgsField.setText("-Xmx2G");
+        gameArgsField.setText("--username Steve");
+        modpackPathField.setText("");
+        refreshLoaderSuggestions();
+        if (saveBtn != null) { saveBtn.setText("CREAR PERFIL"); saveBtn.repaint(); }
+    }
+
+    private void refreshLoaderSuggestions() {
+        String version = selectedComboValue(versionField, "1.20.1");
+        String selectedLoader = selectedComboValue(loaderTypeField, "VANILLA");
+        String selectedLoaderVersion = selectedComboValue(loaderVersionField, "");
+
+        setComboItems(loaderTypeField, suggestedLoaders(version), selectedLoader);
+        setComboItems(loaderVersionField,
+                suggestedLoaderVersions(version, selectedComboValue(loaderTypeField, "VANILLA")),
+                selectedLoaderVersion);
+    }
+
+    private List<String> suggestedLoaders(String gameVersion) {
+        if (gameVersion.startsWith("1.12") || gameVersion.startsWith("1.8")) {
+            return List.of("VANILLA", "FORGE");
+        }
+        if (gameVersion.startsWith("1.16")) {
+            return List.of("VANILLA", "FORGE", "FABRIC");
+        }
+        if (gameVersion.startsWith("1.18") || gameVersion.startsWith("1.19")) {
+            return List.of("VANILLA", "FORGE", "FABRIC", "QUILT");
+        }
+        return List.of("VANILLA", "FORGE", "NEOFORGE", "FABRIC", "QUILT");
+    }
+
+    private List<String> suggestedLoaderVersions(String gameVersion, String loader) {
+        String norm = loader == null ? "VANILLA" : loader.toUpperCase();
+        if ("FORGE".equals(norm)) {
+            if (gameVersion.startsWith("1.20.1")) return List.of("47.3.0", "47.2.20", "latest");
+            if (gameVersion.startsWith("1.19.2")) return List.of("43.4.0", "latest");
+            if (gameVersion.startsWith("1.16.5")) return List.of("36.2.39", "latest");
+            return List.of("latest", "recommended");
+        }
+        if ("NEOFORGE".equals(norm)) {
+            if (gameVersion.startsWith("1.21")) return List.of("21.1.65", "latest");
+            if (gameVersion.startsWith("1.20.6") || gameVersion.startsWith("1.20.4")) return List.of("20.6.120", "latest");
+            return List.of("latest");
+        }
+        if ("FABRIC".equals(norm)) {
+            return List.of("0.15.11", "0.15.10", "latest");
+        }
+        if ("QUILT".equals(norm)) {
+            return List.of("0.26.4", "0.26.3", "latest");
+        }
+        return List.of("");
+    }
+
+    private void setComboItems(JComboBox<String> combo, List<String> suggestions, String preferred) {
+        Set<String> merged = new LinkedHashSet<>();
+        if (suggestions != null) merged.addAll(suggestions);
+        if (preferred != null && !preferred.isBlank()) merged.add(preferred);
+
+        combo.removeAllItems();
+        for (String item : merged) {
+            combo.addItem(item);
+        }
+
+        String target = (preferred == null || preferred.isBlank())
+                ? (merged.isEmpty() ? "" : new ArrayList<>(merged).get(0))
+                : preferred;
+        combo.setSelectedItem(target);
+        combo.setEditable(true);
+    }
+
+    private void loadModpackCompatibility() {
+        runAsync(() -> {
+            String mode = apiClient.getModpackCompatibilityMode();
+            SwingUtilities.invokeLater(() -> modpackCompatField.setSelectedItem(mode));
+        });
+    }
+
+    private void updateModpackCompatibilityFromUi() {
+        if (suppressComboEvents) return;
+
+        Object selected = modpackCompatField.getSelectedItem();
+        if (selected == null) return;
+        runAsync(() -> {
+            String applied = apiClient.setModpackCompatibilityMode(selected.toString());
+            SwingUtilities.invokeLater(() -> {
+                suppressComboEvents = true;
+                modpackCompatField.setSelectedItem(applied);
+                suppressComboEvents = false;
+                appendOutput("Compatibilidad de modpacks: " + applied);
+            });
+        });
+    }
+
+    private String selectedComboValue(JComboBox<String> combo, String fallback) {
+        Object selected = combo.getSelectedItem();
+        if (selected == null) return fallback;
+        String raw = selected.toString().trim();
+        return raw.isBlank() ? fallback : raw;
     }
     private void launchSelectedProfile() {
         if (gameRunning) return;   // ya hay un juego corriendo
@@ -742,6 +992,10 @@ public final class LauncherFrame extends JFrame {
         };
     }
     private void runAsync(Runnable r) {
+        if (executor.isShutdown() || executor.isTerminated()) {
+            System.err.println("[UI] Executor está terminado, saltando tarea async");
+            return;
+        }
         executor.submit(() -> {
             try { r.run(); }
             catch (Exception ex) {
@@ -816,15 +1070,72 @@ public final class LauncherFrame extends JFrame {
         field.setBorder(BorderFactory.createLineBorder(C_BORDER, 1)); field.setFont(new Font("Dialog", Font.PLAIN, 11));
         panel.add(lbl); panel.add(field);
     }
+
+    private void addFormField(JPanel panel, String labelText, JComboBox<String> combo) {
+        JLabel lbl = new JLabel(labelText); lbl.setFont(new Font("Dialog", Font.PLAIN, 11)); lbl.setForeground(C_TEXT);
+        combo.setEditable(true);
+        combo.setBackground(new Color(0x08, 0x08, 0x22));
+        combo.setForeground(C_TEXT);
+        combo.setFont(new Font("Dialog", Font.PLAIN, 11));
+        combo.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+        panel.add(lbl); panel.add(combo);
+    }
+
+    private void addFormField(JPanel panel, String labelText, JComponent component) {
+        JLabel lbl = new JLabel(labelText); lbl.setFont(new Font("Dialog", Font.PLAIN, 11)); lbl.setForeground(C_TEXT);
+        panel.add(lbl); panel.add(component);
+    }
     private static final class ProfileRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (value instanceof MinecraftProfile p) setText("  \u25BA " + p.displayName() + "   [" + p.gameVersion() + "]");
+            if (value instanceof MinecraftProfile p) {
+                String icon = profileIcon(p);
+                String loader = (p.loaderType() == null || p.loaderType().isBlank()) ? "VANILLA" : p.loaderType();
+                setText("<html><div style='font-size: 11pt'>" + icon + " <b style='color: #00e5ff; font-size: 12pt'>" + p.displayName() 
+                        + "</b><br><span style='color: #9090bb; font-size: 10pt'>&nbsp;&nbsp;" + p.gameVersion() + " " + loader + "</span></div></html>");
+            }
             setBackground(isSelected ? new Color(0x18, 0x18, 0x44) : new Color(0x08, 0x08, 0x1e));
             setForeground(isSelected ? C_CYAN : C_TEXT);
-            setBorder(BorderFactory.createEmptyBorder(3, 4, 3, 4));
+            setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(isSelected ? C_MAGENTA : new Color(0x00, 0x99, 0xaa), 2),
+                    BorderFactory.createEmptyBorder(6, 8, 6, 8)
+            ));
+            setOpaque(true);
             return this;
         }
+    }
+
+    private static final class ProfileEditorRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (value instanceof MinecraftProfile p) {
+                String icon = profileIcon(p);
+                String loader = (p.loaderType() == null || p.loaderType().isBlank()) ? "VANILLA" : p.loaderType();
+                setText("<html><div style='font-size: 11pt'>" + icon + " <b style='color: #00e5ff; font-size: 12pt'>" + p.displayName() 
+                        + "</b><br><span style='color: #9090bb; font-size: 10pt'>&nbsp;&nbsp;" + p.gameVersion() + " " + loader + "</span></div></html>");
+            }
+            setBackground(isSelected ? new Color(0x18, 0x18, 0x44) : new Color(0x08, 0x08, 0x1e));
+            setForeground(isSelected ? C_CYAN : C_TEXT);
+            setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(isSelected ? C_MAGENTA : new Color(0x00, 0x99, 0xaa), 2),
+                    BorderFactory.createEmptyBorder(8, 10, 8, 10)
+            ));
+            setOpaque(true);
+            return this;
+        }
+    }
+
+    private static String profileIcon(MinecraftProfile p) {
+        if (p.modpackPath() != null && !p.modpackPath().isBlank()) return "\u25c9";
+        String loader = p.loaderType() == null ? "" : p.loaderType().toUpperCase();
+        return switch (loader) {
+            case "FORGE" -> "\ud83d\udde1";
+            case "NEOFORGE" -> "\u26a1";
+            case "FABRIC" -> "\ud83e\uddf8";
+            case "QUILT" -> "\ud83e\udd7a";
+            default -> "\ud83d\udcc4";
+        };
     }
 }

@@ -21,7 +21,7 @@ public final class LauncherUiApplication {
 
         InternalApiClient apiClient = new InternalApiClient(runtime.apiBaseUri());
         SwingUtilities.invokeLater(() -> {
-            LauncherFrame frame = new LauncherFrame(apiClient, runtime.apiPort(), runtime::stop);
+            LauncherFrame frame = new LauncherFrame(apiClient, runtime.apiPort(), runtime.config().launcherVersion(), runtime::stop);
             frame.setVisible(true);
         });
     }

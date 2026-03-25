@@ -64,11 +64,11 @@ public final class ModpackInstaller {
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
-                String name = entry.getName();
-                if ("modrinth.index.json".equals(name)) {
+                String name = normalizeZipEntryName(entry.getName());
+                if (isEntryNamed(name, "modrinth.index.json")) {
                     return parseModrinth(mapper.readTree(zip.readAllBytes()));
                 }
-                if ("manifest.json".equals(name)) {
+                if (isEntryNamed(name, "manifest.json")) {
                     return parseCurseForge(mapper.readTree(zip.readAllBytes()));
                 }
                 zip.closeEntry();
@@ -186,13 +186,11 @@ public final class ModpackInstaller {
     }
 
     private void extractOverrides(Path zipFile, Path gameDir, String source) throws IOException {
-        String prefix = "overrides/";
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
-                String name = entry.getName();
-                if (name.startsWith(prefix) && !entry.isDirectory()) {
-                    String relative = name.substring(prefix.length());
+                String relative = resolveOverridesRelativePath(entry.getName());
+                if (relative != null && !entry.isDirectory()) {
                     if (relative.isBlank()) { zip.closeEntry(); continue; }
                     Path dest = gameDir.resolve(relative.replace("/", File.separator));
                     Files.createDirectories(dest.getParent());
@@ -203,6 +201,32 @@ public final class ModpackInstaller {
                 zip.closeEntry();
             }
         }
+    }
+
+    private String normalizeZipEntryName(String entryName) {
+        return entryName == null ? "" : entryName.replace('\\', '/');
+    }
+
+    private boolean isEntryNamed(String entryName, String expectedName) {
+        String normalized = normalizeZipEntryName(entryName);
+        String expected = expectedName.toLowerCase();
+        String lower = normalized.toLowerCase();
+        return lower.equals(expected) || lower.endsWith("/" + expected);
+    }
+
+    private String resolveOverridesRelativePath(String entryName) {
+        String normalized = normalizeZipEntryName(entryName);
+        String lower = normalized.toLowerCase();
+        for (String marker : List.of("overrides/", "client-overrides/")) {
+            if (lower.startsWith(marker)) {
+                return normalized.substring(marker.length());
+            }
+            int nested = lower.indexOf("/" + marker);
+            if (nested >= 0) {
+                return normalized.substring(nested + marker.length() + 1);
+            }
+        }
+        return null;
     }
 
     private List<ModpackFile> resolveCurseForgeUrls(List<ModpackFile> files,

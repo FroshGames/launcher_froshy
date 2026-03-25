@@ -10,13 +10,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LauncherServiceTest {
@@ -120,6 +124,131 @@ class LauncherServiceTest {
         } finally {
             service.shutdown();
         }
+    }
+
+    @Test
+    void shouldIgnoreIncomingIdWhenUpdatingProfile() {
+        LauncherConfig config = new LauncherConfig(
+                tempDir,
+                tempDir.resolve("profiles.json"),
+                tempDir.resolve("game"),
+                7878,
+                "1.0-SNAPSHOT",
+                ""
+        );
+        LauncherService service = new LauncherService(
+                config,
+                new ProfileStore(config.profilesFile(), new ObjectMapper())
+        );
+
+        try {
+            service.createProfile(new MinecraftProfile(
+                    "survival", "Survival", "java", "1.20.1",
+                    List.of("-Xmx2G"), List.of("--username", "Steve"),
+                    "VANILLA", "", ""
+            ));
+
+            MinecraftProfile updated = service.updateProfile("survival", new MinecraftProfile(
+                    "otro-id", "Survival Editado", "java", "1.20.1",
+                    List.of("-Xmx3G"), List.of("--username", "Alex"),
+                    "FABRIC", "0.15.11", ""
+            ));
+
+            assertEquals("survival", updated.id());
+            assertEquals("Survival Editado", updated.displayName());
+            assertEquals(1, service.listProfiles().size());
+            assertEquals("survival", service.listProfiles().get(0).id());
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
+    void shouldAcceptCurseForgeModpackWhenCompatibilityIsBoth() throws IOException {
+        LauncherConfig config = new LauncherConfig(
+                tempDir,
+                tempDir.resolve("profiles.json"),
+                tempDir.resolve("game"),
+                7878,
+                "1.0-SNAPSHOT",
+                ""
+        );
+        Path modpack = createCurseManifestZip(tempDir.resolve("cf-pack.zip"));
+
+        LauncherService service = new LauncherService(
+                config,
+                new ProfileStore(config.profilesFile(), new ObjectMapper()),
+                fakeDownloader(),
+                new ModpackInstaller(),
+                ModpackCompatibilityMode.BOTH
+        );
+
+        try {
+            MinecraftProfile profile = new MinecraftProfile(
+                    "cf", "Curse Pack", "java", "1.20.1",
+                    List.of("-Xmx1G"), List.of("--username", "Alex"),
+                    "VANILLA", "", modpack.toAbsolutePath().toString()
+            );
+            service.createProfile(profile);
+
+            assertNotNull(service.launch(new LaunchRequest("cf", false)).launchId());
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
+    void shouldRejectCurseForgeModpackWhenCompatibilityIsModrinthOnly() throws IOException {
+        LauncherConfig config = new LauncherConfig(
+                tempDir,
+                tempDir.resolve("profiles.json"),
+                tempDir.resolve("game"),
+                7878,
+                "0.5-SNAPSHOT",
+                ""
+        );
+        Path modpack = createCurseManifestZip(tempDir.resolve("cf-blocked.zip"));
+
+        LauncherService service = new LauncherService(
+                config,
+                new ProfileStore(config.profilesFile(), new ObjectMapper()),
+                fakeDownloader(),
+                new ModpackInstaller(),
+                ModpackCompatibilityMode.MODRINTH_ONLY
+        );
+
+        try {
+            MinecraftProfile profile = new MinecraftProfile(
+                    "cf-blocked", "Curse Pack", "java", "1.20.1",
+                    List.of("-Xmx1G"), List.of("--username", "Alex"),
+                    "VANILLA", "", modpack.toAbsolutePath().toString()
+            );
+            service.createProfile(profile);
+
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> service.launch(new LaunchRequest("cf-blocked", false)));
+            assertTrue(ex.getMessage().contains("Formato de modpack no permitido"));
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    private Path createCurseManifestZip(Path zipPath) throws IOException {
+        String manifest = """
+                {
+                  "minecraft": { "version": "1.20.1", "modLoaders": [] },
+                  "name": "CF Test",
+                  "version": "1.0.0",
+                  "files": []
+                }
+                """;
+        try (OutputStream out = Files.newOutputStream(zipPath);
+             ZipOutputStream zip = new ZipOutputStream(out)) {
+            zip.putNextEntry(new ZipEntry("manifest.json"));
+            zip.write(manifest.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        return zipPath;
     }
 
     private boolean startsWithJarMagic(Path file) {

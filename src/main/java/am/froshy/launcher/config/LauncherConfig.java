@@ -16,7 +16,7 @@ public record LauncherConfig(
         Path profiles = base.resolve("profiles.json");
         Path gameDir = base.resolve("game");
         int port = parsePort(System.getenv("FROSHY_API_PORT"), 7878);
-        String launcherVersion = readValue(System.getenv("FROSHY_LAUNCHER_VERSION"), "1.0-SNAPSHOT");
+        String launcherVersion = readValue(System.getenv("FROSHY_LAUNCHER_VERSION"), LauncherVersion.get());
         String metadataUrl = readValue(System.getenv("FROSHY_UPDATE_METADATA_URL"), "");
         return new LauncherConfig(base, profiles, gameDir, port, launcherVersion, metadataUrl);
     }

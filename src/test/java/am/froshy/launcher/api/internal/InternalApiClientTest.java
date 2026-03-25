@@ -93,6 +93,21 @@ class InternalApiClientTest {
             assertEquals("builder", created.id());
             assertEquals(1, client.listProfiles().size());
 
+            MinecraftProfile updated = client.updateProfile("builder", new MinecraftProfile(
+                    "id-nuevo", // debe ignorarse en modo edicion
+                    "Perfil Builder Editado",
+                    "java",
+                    "1.20.1",
+                    List.of("-Xmx3G"),
+                    List.of("--username", "Alex"),
+                    "VANILLA",
+                    "",
+                    ""
+            ));
+
+            assertEquals("builder", updated.id());
+            assertEquals("Perfil Builder Editado", updated.displayName());
+
             PreparedLaunchStatus op = client.startLaunchPreparedAsync(new LaunchRequest("builder", false));
             assertNotNull(op.operationId());
 
@@ -107,6 +122,10 @@ class InternalApiClientTest {
             assertEquals("DONE", status.state());
             assertNotNull(status.launchId());
             assertTrue(client.isGameAlive(status.launchId()));
+
+            assertEquals("BOTH", client.getModpackCompatibilityMode());
+            assertEquals("MODRINTH_ONLY", client.setModpackCompatibilityMode("MODRINTH_ONLY"));
+            assertEquals("MODRINTH_ONLY", client.getModpackCompatibilityMode());
         } finally {
             server.stop();
         }

@@ -2,6 +2,7 @@ package am.froshy.launcher.api.internal;
 
 import am.froshy.launcher.application.LauncherService;
 import am.froshy.launcher.application.LauncherUpdateService;
+import am.froshy.launcher.application.ModpackCompatibilityMode;
 import am.froshy.launcher.domain.LaunchRequest;
 import am.froshy.launcher.domain.MinecraftProfile;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -58,6 +59,7 @@ public final class InternalApiServer {
         server.createContext("/internal/v1/downloads",        exchange -> withErrorHandling(exchange, this::handleDownloads));
         server.createContext("/internal/v1/updates/check",    exchange -> withErrorHandling(exchange, this::handleUpdateCheck));
         server.createContext("/internal/v1/versions/prepare", exchange -> withErrorHandling(exchange, this::handlePrepareVersion));
+        server.createContext("/internal/v1/settings/modpack-compat", exchange -> withErrorHandling(exchange, this::handleModpackCompatibility));
     }
 
     private void handleHealth(HttpExchange exchange) throws IOException {
@@ -69,19 +71,28 @@ public final class InternalApiServer {
     }
 
     private void handleProfiles(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
         String method = exchange.getRequestMethod();
-        if ("GET".equalsIgnoreCase(method)) {
+        if ("GET".equalsIgnoreCase(method) && "/internal/v1/profiles".equals(path)) {
             sendJson(exchange, 200, launcherService.listProfiles());
             return;
         }
-        if ("POST".equalsIgnoreCase(method)) {
+        if ("POST".equalsIgnoreCase(method) && "/internal/v1/profiles".equals(path)) {
             MinecraftProfile profile = readBody(exchange, MinecraftProfile.class);
             MinecraftProfile created = launcherService.createProfile(profile);
             sendJson(exchange, 201, created);
             return;
         }
 
-        sendMethodNotAllowed(exchange, List.of("GET", "POST"));
+        if ("PUT".equalsIgnoreCase(method) && path.startsWith("/internal/v1/profiles/")) {
+            String existingId = path.substring("/internal/v1/profiles/".length());
+            MinecraftProfile profile = readBody(exchange, MinecraftProfile.class);
+            MinecraftProfile updated = launcherService.updateProfile(existingId, profile);
+            sendJson(exchange, 200, updated);
+            return;
+        }
+
+        sendMethodNotAllowed(exchange, List.of("GET", "POST", "PUT"));
     }
 
     private void handleLaunch(HttpExchange exchange) throws IOException {
@@ -203,6 +214,33 @@ public final class InternalApiServer {
         Map<String, String> request = readBody(exchange, new TypeReference<>() {});
         String version = request.get("version");
         sendJson(exchange, 202, launcherService.prepareVersion(version));
+    }
+
+    private void handleModpackCompatibility(HttpExchange exchange) throws IOException {
+        String method = exchange.getRequestMethod();
+        if ("GET".equalsIgnoreCase(method)) {
+            ModpackCompatibilityMode mode = launcherService.getModpackCompatibilityMode();
+            sendJson(exchange, 200, Map.of(
+                    "mode", mode.name(),
+                    "allowedSources", switch (mode) {
+                        case BOTH -> List.of("MODRINTH", "CURSEFORGE");
+                        case MODRINTH_ONLY -> List.of("MODRINTH");
+                        case CURSEFORGE_ONLY -> List.of("CURSEFORGE");
+                    }
+            ));
+            return;
+        }
+
+        if ("POST".equalsIgnoreCase(method)) {
+            Map<String, String> request = readBody(exchange, new TypeReference<>() {});
+            String rawMode = request.get("mode");
+            ModpackCompatibilityMode mode = ModpackCompatibilityMode.fromEnvironment(rawMode);
+            ModpackCompatibilityMode applied = launcherService.setModpackCompatibilityMode(mode);
+            sendJson(exchange, 200, Map.of("mode", applied.name()));
+            return;
+        }
+
+        sendMethodNotAllowed(exchange, List.of("GET", "POST"));
     }
 
     private <T> T readBody(HttpExchange exchange, Class<T> type) throws IOException {

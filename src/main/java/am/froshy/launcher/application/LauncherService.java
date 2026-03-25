@@ -38,6 +38,7 @@ public final class LauncherService {
     private final ProfileStore profileStore;
     private final MinecraftVersionDownloader versionDownloader;
     private final ModpackInstaller modpackInstaller;
+    private volatile ModpackCompatibilityMode modpackCompatibilityMode;
 
     private final Map<String, MinecraftProfile> profiles         = new ConcurrentHashMap<>();
     private final Map<String, DownloadStatus>   downloads        = new ConcurrentHashMap<>();
@@ -52,21 +53,34 @@ public final class LauncherService {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore) {
-        this(config, profileStore, new MojangVersionDownloader(), new ModpackInstaller());
+        this(config, profileStore, new MojangVersionDownloader(), new ModpackInstaller(),
+                ModpackCompatibilityMode.fromEnvironment(System.getenv("FROSHY_MODPACK_COMPAT")));
     }
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore,
                            MinecraftVersionDownloader versionDownloader) {
-        this(config, profileStore, versionDownloader, new ModpackInstaller());
+        this(config, profileStore, versionDownloader, new ModpackInstaller(),
+                ModpackCompatibilityMode.fromEnvironment(System.getenv("FROSHY_MODPACK_COMPAT")));
     }
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore,
                            MinecraftVersionDownloader versionDownloader,
                            ModpackInstaller modpackInstaller) {
+        this(config, profileStore, versionDownloader, modpackInstaller,
+                ModpackCompatibilityMode.fromEnvironment(System.getenv("FROSHY_MODPACK_COMPAT")));
+    }
+
+    public LauncherService(LauncherConfig config, ProfileStore profileStore,
+                           MinecraftVersionDownloader versionDownloader,
+                           ModpackInstaller modpackInstaller,
+                           ModpackCompatibilityMode modpackCompatibilityMode) {
         this.config            = config;
         this.profileStore      = profileStore;
         this.versionDownloader = versionDownloader;
         this.modpackInstaller  = modpackInstaller;
+        this.modpackCompatibilityMode = modpackCompatibilityMode == null
+                ? ModpackCompatibilityMode.BOTH
+                : modpackCompatibilityMode;
         profileStore.load().forEach(p -> profiles.put(p.id(), p));
     }
 
@@ -82,6 +96,32 @@ public final class LauncherService {
         profiles.put(profile.id(), profile);
         profileStore.save(profiles.values());
         return profile;
+    }
+
+    public MinecraftProfile updateProfile(String existingId, MinecraftProfile changes) {
+        if (existingId == null || existingId.isBlank()) {
+            throw new IllegalArgumentException("existingId es obligatorio");
+        }
+        if (!profiles.containsKey(existingId)) {
+            throw new IllegalArgumentException("Perfil no encontrado: " + existingId);
+        }
+
+        // En modo edicion, la ID del formulario se ignora y se conserva la original.
+        MinecraftProfile updated = new MinecraftProfile(
+                existingId,
+                changes.displayName(),
+                changes.javaPath(),
+                changes.gameVersion(),
+                changes.jvmArgs(),
+                changes.gameArgs(),
+                changes.loaderType(),
+                changes.loaderVersion(),
+                changes.modpackPath()
+        );
+
+        profiles.put(existingId, updated);
+        profileStore.save(profiles.values());
+        return updated;
     }
 
     // ── Lanzamiento ───────────────────────────────────────────────────────
@@ -315,8 +355,21 @@ public final class LauncherService {
                 "status", "UP",
                 "apiPort", config.internalApiPort(),
                 "profiles", profiles.size(),
+                "modpackCompatibility", modpackCompatibilityMode.name(),
                 "timestamp", Instant.now().toString()
         );
+    }
+
+    public ModpackCompatibilityMode getModpackCompatibilityMode() {
+        return modpackCompatibilityMode;
+    }
+
+    public ModpackCompatibilityMode setModpackCompatibilityMode(ModpackCompatibilityMode mode) {
+        if (mode == null) {
+            throw new IllegalArgumentException("mode es obligatorio");
+        }
+        this.modpackCompatibilityMode = mode;
+        return this.modpackCompatibilityMode;
     }
 
     public void shutdown() {
@@ -476,7 +529,7 @@ public final class LauncherService {
 
         if (basePlan.hasModpack()) {
             Path modpackPath = basePlan.modpackPath();
-            ModpackManifest manifest = modpackInstaller.parseModpack(modpackPath);
+            ModpackManifest manifest = parseAndValidateModpack(modpackPath);
             String launchVersion = effectiveVersion;
             modpackInstaller.installModpackFiles(modpackPath, manifest, config.gameDirectory(), (progress, message) ->
                     preparedLaunches.put(operationId, new PreparedLaunchStatus(
@@ -519,7 +572,7 @@ public final class LauncherService {
         }
 
         if (plan.hasModpack()) {
-            ModpackManifest manifest = modpackInstaller.parseModpack(plan.modpackPath());
+            ModpackManifest manifest = parseAndValidateModpack(plan.modpackPath());
             modpackInstaller.installModpackFiles(plan.modpackPath(), manifest, config.gameDirectory(), progress);
         }
 
@@ -538,7 +591,7 @@ public final class LauncherService {
                 throw new IOException("No existe el modpack en ruta: " + modpackPath);
             }
 
-            ModpackManifest manifest = modpackInstaller.parseModpack(modpackPath);
+            ModpackManifest manifest = parseAndValidateModpack(modpackPath);
             if (manifest.minecraftVersion() != null && !manifest.minecraftVersion().isBlank()) {
                 minecraftVersion = manifest.minecraftVersion();
             }
@@ -557,6 +610,15 @@ public final class LauncherService {
         );
 
         return new LaunchPlan(minecraftVersion, loaderType, loaderVersion, modpackPath, effectiveVersion);
+    }
+
+    private ModpackManifest parseAndValidateModpack(Path modpackPath) throws IOException {
+        ModpackManifest manifest = modpackInstaller.parseModpack(modpackPath);
+        if (!modpackCompatibilityMode.isAllowed(manifest.source())) {
+            throw new IOException("Formato de modpack no permitido por compatibilidad actual ("
+                    + modpackCompatibilityMode + "): " + manifest.source());
+        }
+        return manifest;
     }
 
     private record LaunchPlan(
