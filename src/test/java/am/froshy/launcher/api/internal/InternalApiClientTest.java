@@ -108,6 +108,10 @@ class InternalApiClientTest {
             assertEquals("builder", updated.id());
             assertEquals("Perfil Builder Editado", updated.displayName());
 
+            String instancePath = client.getProfileInstancePath("builder");
+            assertTrue(instancePath.contains("instances"));
+            assertTrue(instancePath.endsWith("builder"));
+
             PreparedLaunchStatus op = client.startLaunchPreparedAsync(new LaunchRequest("builder", false));
             assertNotNull(op.operationId());
 

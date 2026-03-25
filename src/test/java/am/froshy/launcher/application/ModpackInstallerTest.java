@@ -102,6 +102,36 @@ class ModpackInstallerTest {
         assertEquals("ok", Files.readString(gameDir.resolve("config").resolve("example.txt"), StandardCharsets.UTF_8));
     }
 
+    @Test
+    void shouldOverwriteExistingOverrideFiles() throws IOException, InterruptedException {
+        Path zip = tempDir.resolve("overwrite-overrides.mrpack");
+        String index = """
+                {
+                  "name": "Overwrite Overrides",
+                  "versionId": "1.0.0",
+                  "dependencies": {
+                    "minecraft": "1.20.1"
+                  },
+                  "files": []
+                }
+                """;
+
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("pack/modrinth.index.json", index);
+        entries.put("pack/client-overrides/config/example.txt", "new-value");
+        createZip(zip, entries);
+
+        ModpackInstaller installer = new ModpackInstaller();
+        ModpackManifest parsed = installer.parseModpack(zip);
+        Path gameDir = tempDir.resolve("game-overwrite");
+        Files.createDirectories(gameDir.resolve("config"));
+        Files.writeString(gameDir.resolve("config").resolve("example.txt"), "old-value", StandardCharsets.UTF_8);
+
+        installer.installModpackFiles(zip, parsed, gameDir, (p, m) -> { });
+
+        assertEquals("new-value", Files.readString(gameDir.resolve("config").resolve("example.txt"), StandardCharsets.UTF_8));
+    }
+
     private void createZip(Path zipPath, Map<String, String> entries) throws IOException {
         try (OutputStream out = Files.newOutputStream(zipPath);
              ZipOutputStream zip = new ZipOutputStream(out)) {

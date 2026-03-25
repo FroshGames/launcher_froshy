@@ -48,6 +48,12 @@ public final class InternalApiClient {
         return send("profiles/" + existingId, "PUT", profile, new TypeReference<>() {});
     }
 
+    public String getProfileInstancePath(String profileId) {
+        Map<String, Object> response = send("profiles/" + profileId + "/instance-path", "GET", null, new TypeReference<>() {});
+        Object instancePath = response.get("instancePath");
+        return instancePath == null ? "" : instancePath.toString();
+    }
+
     public LaunchResult launch(LaunchRequest request) {
         return send("launch", "POST", request, new TypeReference<>() {});
     }

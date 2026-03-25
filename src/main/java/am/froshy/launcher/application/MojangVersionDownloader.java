@@ -1,5 +1,6 @@
 package am.froshy.launcher.application;
 
+import am.froshy.launcher.config.LauncherVersion;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -283,14 +284,21 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             clientJar = versionDir.resolve(version + ".jar");
         }
         classpath.add(clientJar);  // client JAR al final
+        Path clientJarFinal = clientJar;
 
         // ── Variables de sustitución ─────────────────────────────────────
         String mainClass     = meta.path("mainClass").asText();
         String assetIndexId  = meta.path("assetIndex").path("id").asText("legacy");
         Path   assetsDir     = gameDir.resolve("assets");
+        Path   librariesDir  = gameDir.resolve("libraries");
         Path   nativesDir    = versionDir.resolve("natives");
 
-        String cpStr = classpath.stream()
+        boolean bootstrapLaunch = "cpw.mods.bootstraplauncher.BootstrapLauncher".equals(mainClass);
+        List<Path> runtimeClasspath = bootstrapLaunch
+                ? classpath.stream().filter(p -> !p.equals(clientJarFinal)).toList()
+                : classpath;
+
+        String cpStr = runtimeClasspath.stream()
                 .map(p -> p.toAbsolutePath().toString())
                 .collect(java.util.stream.Collectors.joining(File.pathSeparator));
 
@@ -300,15 +308,21 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         vars.put("game_directory",      gameDir.toAbsolutePath().toString());
         vars.put("assets_root",         assetsDir.toAbsolutePath().toString());
         vars.put("assets_index_name",   assetIndexId);
+        vars.put("game_assets",         assetsDir.toAbsolutePath().toString());
         vars.put("auth_uuid",           offlineUUID(username).toString());
         vars.put("auth_access_token",   "0");
+        vars.put("auth_session",        "0");
         vars.put("clientid",            "0");
         vars.put("auth_xuid",           "0");
         vars.put("user_type",           "offline");
+        vars.put("user_properties",     "{}");
+        vars.put("profile_name",        username);
         vars.put("version_type",        meta.path("type").asText("release"));
         vars.put("launcher_name",       "FroshyLauncher");
-        vars.put("launcher_version",    "1.0");
+        vars.put("launcher_version",    LauncherVersion.get());
         vars.put("natives_directory",   nativesDir.toAbsolutePath().toString());
+        vars.put("library_directory",   librariesDir.toAbsolutePath().toString());
+        vars.put("classpath_separator", File.pathSeparator);
         vars.put("classpath",           cpStr);
         vars.put("resolution_width",    "854");
         vars.put("resolution_height",   "480");
@@ -338,7 +352,7 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             }
         }
 
-        return new VersionInstallation(classpath, mainClass, jvmArgs, gameArgs, nativesDir);
+        return new VersionInstallation(runtimeClasspath, mainClass, jvmArgs, gameArgs, nativesDir);
     }
 
     private ResolvedVersionData resolveVersionData(String version, Path gameDir, Set<String> visiting)

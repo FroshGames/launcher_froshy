@@ -152,6 +152,9 @@ public final class ModpackInstaller {
     public void installModpackFiles(Path zipFile, ModpackManifest manifest, Path gameDir,
             BiConsumer<Integer, String> progress) throws IOException, InterruptedException {
 
+        progress.accept(0, "Limpiando mods previos para evitar conflictos...");
+        purgeModsDirectory(gameDir);
+
         progress.accept(0, "Extrayendo archivos base del modpack...");
         extractOverrides(zipFile, gameDir, manifest.source());
 
@@ -185,6 +188,25 @@ public final class ModpackInstaller {
         progress.accept(100, "Modpack instalado: " + manifest.name());
     }
 
+    private void purgeModsDirectory(Path gameDir) throws IOException {
+        Path modsDir = gameDir.resolve("mods");
+        if (!Files.isDirectory(modsDir)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(modsDir)) {
+            walk
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".jar"))
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException ignored) {
+                            // Si un archivo está bloqueado, se reintentará en el siguiente ciclo.
+                        }
+                    });
+        }
+    }
+
     private void extractOverrides(Path zipFile, Path gameDir, String source) throws IOException {
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
@@ -194,9 +216,7 @@ public final class ModpackInstaller {
                     if (relative.isBlank()) { zip.closeEntry(); continue; }
                     Path dest = gameDir.resolve(relative.replace("/", File.separator));
                     Files.createDirectories(dest.getParent());
-                    if (!Files.exists(dest)) {
-                        Files.copy(zip, dest, StandardCopyOption.REPLACE_EXISTING);
-                    }
+                    Files.copy(zip, dest, StandardCopyOption.REPLACE_EXISTING);
                 }
                 zip.closeEntry();
             }

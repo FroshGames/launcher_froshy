@@ -114,7 +114,12 @@ class LauncherServiceTest {
             ));
 
             LaunchResult result = service.prepareAndLaunch(new LaunchRequest("pvp", false));
-            Path versionJar = config.gameDirectory().resolve("versions").resolve("1.8.9").resolve("1.8.9.jar");
+            Path versionJar = config.gameDirectory()
+                    .resolve("instances")
+                    .resolve("pvp")
+                    .resolve("versions")
+                    .resolve("1.8.9")
+                    .resolve("1.8.9.jar");
 
             assertNotNull(result.launchId());
             assertEquals("STARTED", result.status());
@@ -158,6 +163,7 @@ class LauncherServiceTest {
             assertEquals("Survival Editado", updated.displayName());
             assertEquals(1, service.listProfiles().size());
             assertEquals("survival", service.listProfiles().get(0).id());
+            assertTrue(service.getProfileInstancePath("survival").endsWith("instances" + java.io.File.separator + "survival"));
         } finally {
             service.shutdown();
         }

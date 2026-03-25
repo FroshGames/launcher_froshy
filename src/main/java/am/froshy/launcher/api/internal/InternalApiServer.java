@@ -77,6 +77,16 @@ public final class InternalApiServer {
             sendJson(exchange, 200, launcherService.listProfiles());
             return;
         }
+        if ("GET".equalsIgnoreCase(method)
+                && path.startsWith("/internal/v1/profiles/")
+                && path.endsWith("/instance-path")) {
+            String profileId = path.substring("/internal/v1/profiles/".length(), path.length() - "/instance-path".length());
+            sendJson(exchange, 200, Map.of(
+                    "profileId", profileId,
+                    "instancePath", launcherService.getProfileInstancePath(profileId)
+            ));
+            return;
+        }
         if ("POST".equalsIgnoreCase(method) && "/internal/v1/profiles".equals(path)) {
             MinecraftProfile profile = readBody(exchange, MinecraftProfile.class);
             MinecraftProfile created = launcherService.createProfile(profile);

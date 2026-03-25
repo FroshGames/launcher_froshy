@@ -54,6 +54,8 @@ public final class LauncherFrame extends JFrame {
     private final JTextArea  outputArea    = new JTextArea();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JProgressBar phaseProgressBar = new JProgressBar(0, 100);
+    private final JLabel instancePathHomeLbl = new JLabel("Instancia: -");
+    private final JLabel instancePathFormLbl = new JLabel("-");
     private final JLabel statusLbl = new JLabel("Listo");
     private final JLabel phaseLbl = new JLabel("IDLE");
     private final JLabel healthLbl = new JLabel("\u25CF API");
@@ -63,11 +65,14 @@ public final class LauncherFrame extends JFrame {
     private volatile String          currentLaunchId = null;
     private volatile int             lastOutputIdx   = 0;
     private          ScheduledFuture<?> outputPoll  = null;
-    private JButton    launchBtn;
     private JButton    playBtn;
+    private JButton    manualModeBtn;
+    private JButton    modpackModeBtn;
     private JButton    saveBtn;
+    private JButton    modpackBrowseBtn;
     private boolean    suppressComboEvents = false;
     private String     editingProfileId = null;
+    private boolean    modpackImportMode = false;
     private JPanel     contentStack;
     private CardLayout contentCards;
     private Point      dragOrigin;
@@ -193,13 +198,8 @@ public final class LauncherFrame extends JFrame {
         };
         mainTitle.setFont(new Font("Dialog", Font.BOLD, 26)); mainTitle.setForeground(C_CYAN);
         mainTitle.setPreferredSize(new Dimension(0, 38));
-        launchBtn = buildNeonBtn("LAUNCH MINECRAFT", C_MAGENTA, 224, 38);
-        launchBtn.addActionListener(e -> launchSelectedProfile());
-        JPanel launchRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 2));
-        launchRow.setOpaque(false); launchRow.add(launchBtn);
         header.add(logoRow,   BorderLayout.NORTH);
         header.add(mainTitle, BorderLayout.CENTER);
-        header.add(launchRow, BorderLayout.SOUTH);
         contentCards = new CardLayout();
         contentStack = new JPanel(contentCards) {
             @Override protected void paintComponent(Graphics g) {
@@ -288,7 +288,10 @@ public final class LauncherFrame extends JFrame {
         profilesList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 MinecraftProfile p = profilesList.getSelectedValue();
-                if (p != null) selTitle.setText("\u25BA " + p.displayName() + "  \u2014  v" + p.gameVersion());
+                if (p != null) {
+                    selTitle.setText("\u25BA " + p.displayName() + "  \u2014  v" + p.gameVersion());
+                    updateInstancePathLabels(p);
+                }
             }
         });
         JScrollPane scroll = new JScrollPane(profilesList);
@@ -318,12 +321,19 @@ public final class LauncherFrame extends JFrame {
 
         healthLbl.setFont(new Font("Dialog", Font.PLAIN, 10)); healthLbl.setForeground(C_GREEN);
         updateLbl.setFont(new Font("Dialog", Font.PLAIN, 10)); updateLbl.setForeground(C_DIM);
+        instancePathHomeLbl.setFont(new Font("Dialog", Font.PLAIN, 9));
+        instancePathHomeLbl.setForeground(C_DIM);
+        instancePathHomeLbl.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 0));
         JPanel infoRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0)); infoRow.setOpaque(false);
         infoRow.add(healthLbl); infoRow.add(updateLbl); infoRow.add(phaseLbl);
         JPanel bottomGroup = new JPanel(new BorderLayout(4, 2)); bottomGroup.setOpaque(false);
         bottomGroup.add(progressBar, BorderLayout.NORTH);
         bottomGroup.add(phaseProgressBar, BorderLayout.CENTER);
-        bottomGroup.add(infoRow, BorderLayout.SOUTH);
+        JPanel metaRows = new JPanel(new GridLayout(2, 1, 0, 2));
+        metaRows.setOpaque(false);
+        metaRows.add(infoRow);
+        metaRows.add(instancePathHomeLbl);
+        bottomGroup.add(metaRows, BorderLayout.SOUTH);
         panel.add(selTitle,    BorderLayout.NORTH);
         panel.add(scroll,      BorderLayout.CENTER);
         panel.add(bottomGroup, BorderLayout.SOUTH);
@@ -346,12 +356,18 @@ public final class LauncherFrame extends JFrame {
         JPanel form = new JPanel(new GridLayout(0, 1, 0, 6));
         form.setOpaque(false);
         form.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        versionField.setEditable(false);
+        loaderTypeField.setEditable(false);
+        loaderVersionField.setEditable(true);
+        modpackCompatField.setEditable(false);
         addFormField(form, "ID:", idField);
         addFormField(form, "Nombre:", nameField);
+        addFormField(form, "Modo:", buildProfileModeSwitcher());
         addFormField(form, "Version:", versionField);
         addFormField(form, "Loader:", loaderTypeField);
         addFormField(form, "Ver. Loader:", loaderVersionField);
         addFormField(form, "Modpack (.mrpack/.zip):", buildModpackPickerField());
+        addFormField(form, "Instancia:", instancePathFormLbl);
         addFormField(form, "JVM Args:", jvmArgsField);
         addFormField(form, "Game Args:", gameArgsField);
         addFormField(form, "Compat. modpacks:", modpackCompatField);
@@ -375,6 +391,7 @@ public final class LauncherFrame extends JFrame {
                 if (p != null) {
                     loadProfileIntoForm(p);
                     profilesList.setSelectedValue(p, true);
+                    updateInstancePathLabels(p);
                 }
             }
         });
@@ -412,6 +429,7 @@ public final class LauncherFrame extends JFrame {
         panel.add(btnRow, BorderLayout.SOUTH);
 
         refreshLoaderSuggestions();
+        applyProfileModeUi();
         loadModpackCompatibility();
         return panel;
     }
@@ -490,13 +508,17 @@ public final class LauncherFrame extends JFrame {
         return wrapper;
     }
     private JButton buildNeonBtn(String text, Color accent, int w, int h) {
-        // Para PLAY y LAUNCH: refleja estado gameRunning
-        boolean isPlayBtn = "PLAY".equals(text) || "LAUNCH MINECRAFT".equals(text);
-        boolean isStrongCta = "PLAY".equals(text) || "GUARDAR CAMBIOS".equals(text) || "CREAR PERFIL".equals(text);
+        // Para PLAY: refleja estado gameRunning
+        boolean isPlayBtn = "PLAY".equals(text);
+        boolean isStrongCta = "PLAY".equals(text)
+                || "GUARDAR CAMBIOS".equals(text)
+                || "CREAR INSTANCIA".equals(text)
+                || "IMPORTAR MODPACK".equals(text);
         JButton btn = new JButton(text) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                boolean modeActive = Boolean.TRUE.equals(getClientProperty("modeActive"));
                 Color eff = (isPlayBtn && gameRunning) ? C_GREEN : accent;
                 int r = eff.getRed(), gn = eff.getGreen(), b = eff.getBlue();
                 Color base = getModel().isPressed()
@@ -504,12 +526,12 @@ public final class LauncherFrame extends JFrame {
                         : getModel().isRollover()
                                 ? new Color(Math.min(255,r/3), Math.min(255,gn/3), Math.min(255,b/3))
                                 : new Color(r/7, gn/7, b/7);
-                int radius = isStrongCta ? 10 : 8;
-                if (isStrongCta) {
+                int radius = (isStrongCta || modeActive) ? 10 : 8;
+                if (isStrongCta || modeActive) {
                     GradientPaint gp = new GradientPaint(0, 0,
-                            new Color(Math.max(0, r / 8), Math.max(0, gn / 8), Math.max(0, b / 8)),
+                            new Color(Math.max(0, r / 7), Math.max(0, gn / 7), Math.max(0, b / 7)),
                             getWidth(), getHeight(),
-                            new Color(Math.max(0, r / 4), Math.max(0, gn / 4), Math.max(0, b / 4)));
+                            new Color(Math.max(0, r / 3), Math.max(0, gn / 3), Math.max(0, b / 3)));
                     g2.setPaint(gp);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
                 } else {
@@ -521,9 +543,14 @@ public final class LauncherFrame extends JFrame {
                 g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,radius + 2,radius + 2);
                 g2.setColor(eff); g2.setStroke(new BasicStroke(2f));
                 g2.drawRoundRect(1,1,getWidth()-3,getHeight()-3,radius,radius);
+                if (modeActive) {
+                    g2.setColor(new Color(255, 255, 255, 45));
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawRoundRect(3, 3, getWidth() - 7, getHeight() - 7, radius - 2, radius - 2);
+                }
                 // Texto dinámico
                 String displayText = (isPlayBtn && gameRunning) ? "RUNNING" : getText();
-                g2.setColor(C_TEXT); g2.setFont(getFont()); FontMetrics fm = g2.getFontMetrics();
+                g2.setColor(modeActive ? C_CYAN : C_TEXT); g2.setFont(getFont()); FontMetrics fm = g2.getFontMetrics();
                 g2.drawString(displayText, (getWidth()-fm.stringWidth(displayText))/2,
                         (getHeight()+fm.getAscent()-fm.getDescent())/2);
                 g2.dispose();
@@ -578,6 +605,7 @@ public final class LauncherFrame extends JFrame {
                 if (!profiles.isEmpty()) {
                     profilesList.setSelectedIndex(0);
                     profilesEditorList.setSelectedIndex(0);
+                    updateInstancePathLabels(profiles.get(0));
                 } else {
                     startCreateProfileMode();
                 }
@@ -614,6 +642,7 @@ public final class LauncherFrame extends JFrame {
         String formId = idField.getText().trim();
         String effectiveId = creating ? formId : editingProfileId;
         String name = nameField.getText().trim();
+        boolean modpackMode = isModpackImportMode();
 
         if (name.isEmpty()) {
             JOptionPane.showMessageDialog(this, "El nombre es obligatorio", "Validacion", JOptionPane.WARNING_MESSAGE);
@@ -624,11 +653,20 @@ public final class LauncherFrame extends JFrame {
             return;
         }
 
+        String modpackPath = modpackMode ? modpackPathField.getText().trim() : "";
+        if (modpackMode && modpackPath.isBlank()) {
+            JOptionPane.showMessageDialog(this, "Selecciona un modpack existente para importarlo", "Validacion", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String loaderType = modpackMode ? "VANILLA" : selectedComboValue(loaderTypeField, "VANILLA");
+        String loaderVersion = modpackMode ? "" : selectedComboValue(loaderVersionField, "");
+
         MinecraftProfile profile = new MinecraftProfile(effectiveId, name, "java", selectedComboValue(versionField, "1.20.1"),
                 splitArgs(jvmArgsField.getText()), splitArgs(gameArgsField.getText()),
-                selectedComboValue(loaderTypeField, "VANILLA"),
-                selectedComboValue(loaderVersionField, ""),
-                modpackPathField.getText().trim());
+                loaderType,
+                loaderVersion,
+                modpackPath);
         runAsync(() -> {
             MinecraftProfile saved = creating
                     ? apiClient.createProfile(profile)
@@ -649,17 +687,35 @@ public final class LauncherFrame extends JFrame {
         modpackPathField.setCaretColor(C_TEXT);
         modpackPathField.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
 
-        JButton browseBtn = buildNeonBtn("...", C_BORDER, 36, 24);
-        browseBtn.addActionListener(e -> chooseModpackFile());
+        modpackBrowseBtn = buildNeonBtn("...", C_BORDER, 36, 24);
+        modpackBrowseBtn.addActionListener(e -> chooseModpackFile());
         row.add(modpackPathField, BorderLayout.CENTER);
-        row.add(browseBtn, BorderLayout.EAST);
+        row.add(modpackBrowseBtn, BorderLayout.EAST);
         return row;
+    }
+
+    private JComponent buildProfileModeSwitcher() {
+        JPanel row = new JPanel(new GridLayout(1, 2, 6, 0));
+        row.setOpaque(false);
+        manualModeBtn = buildNeonBtn("Instancia", C_CYAN, 110, 26);
+        modpackModeBtn = buildNeonBtn("Modpack", C_MAGENTA, 110, 26);
+        manualModeBtn.addActionListener(e -> setProfileMode(false));
+        modpackModeBtn.addActionListener(e -> setProfileMode(true));
+        row.add(manualModeBtn);
+        row.add(modpackModeBtn);
+        return row;
+    }
+
+    private void setProfileMode(boolean modpackMode) {
+        this.modpackImportMode = modpackMode;
+        applyProfileModeUi();
     }
 
     private void chooseModpackFile() {
         ModpackFileChooser chooser = new ModpackFileChooser(this);
         File selected = chooser.showDialog();
         if (selected != null) {
+            setProfileMode(true);
             modpackPathField.setText(selected.getAbsolutePath());
         }
     }
@@ -669,6 +725,7 @@ public final class LauncherFrame extends JFrame {
         idField.setText(p.id());
         idField.setEditable(false);
         nameField.setText(p.displayName());
+        setProfileMode(p.hasModpack());
         versionField.setSelectedItem(p.gameVersion());
         loaderTypeField.setSelectedItem(p.loaderType());
         loaderVersionField.setEditable(true);
@@ -677,6 +734,7 @@ public final class LauncherFrame extends JFrame {
         gameArgsField.setText(String.join(" ", p.gameArgs()));
         modpackPathField.setText(p.modpackPath());
         refreshLoaderSuggestions();
+        applyProfileModeUi();
         if (saveBtn != null) { saveBtn.setText("GUARDAR CAMBIOS"); saveBtn.repaint(); }
     }
 
@@ -686,14 +744,95 @@ public final class LauncherFrame extends JFrame {
         idField.setEditable(true);
         idField.setText("");
         nameField.setText("");
+        setProfileMode(false);
         versionField.setSelectedItem("1.20.1");
-        loaderTypeField.setSelectedItem("VANILLA");
+        loaderTypeField.setSelectedItem("FORGE");
         loaderVersionField.setSelectedItem("");
         jvmArgsField.setText("-Xmx2G");
         gameArgsField.setText("--username Steve");
         modpackPathField.setText("");
         refreshLoaderSuggestions();
-        if (saveBtn != null) { saveBtn.setText("CREAR PERFIL"); saveBtn.repaint(); }
+        applyProfileModeUi();
+        setInstancePathText("Instancia: (se crea al guardar el perfil)", "");
+        if (saveBtn != null) { saveBtn.setText("CREAR INSTANCIA"); saveBtn.repaint(); }
+    }
+
+    private void updateInstancePathLabels(MinecraftProfile profile) {
+        if (profile == null) {
+            setInstancePathText("Instancia: -", "");
+            return;
+        }
+        runAsync(() -> {
+            String path;
+            try {
+                path = apiClient.getProfileInstancePath(profile.id());
+            } catch (Exception ex) {
+                path = "(no disponible)";
+            }
+            String finalPath = path;
+            SwingUtilities.invokeLater(() -> setInstancePathText("Instancia: " + finalPath, finalPath));
+        });
+    }
+
+    private void setInstancePathText(String text, String tooltipPath) {
+        instancePathHomeLbl.setText(text);
+        instancePathHomeLbl.setToolTipText(tooltipPath == null || tooltipPath.isBlank() ? null : tooltipPath);
+        instancePathFormLbl.setText(text.replaceFirst("^Instancia:\\s*", ""));
+        instancePathFormLbl.setToolTipText(tooltipPath == null || tooltipPath.isBlank() ? null : tooltipPath);
+        instancePathFormLbl.setForeground(C_DIM);
+        instancePathFormLbl.setFont(new Font("Dialog", Font.PLAIN, 10));
+    }
+
+    private void applyProfileModeUi() {
+        boolean manualMode = !isModpackImportMode();
+        versionField.setEnabled(manualMode);
+        loaderTypeField.setEnabled(manualMode);
+        loaderVersionField.setEnabled(manualMode);
+        modpackPathField.setEnabled(!manualMode);
+        modpackCompatField.setEnabled(!manualMode);
+        if (modpackBrowseBtn != null) {
+            modpackBrowseBtn.setEnabled(!manualMode);
+            modpackBrowseBtn.repaint();
+        }
+        applyFieldStyle(idField, idField.isEditable());
+        applyFieldStyle(nameField, true);
+        applyFieldStyle(versionField, manualMode);
+        applyFieldStyle(loaderTypeField, manualMode);
+        applyFieldStyle(loaderVersionField, manualMode);
+        applyFieldStyle(modpackPathField, !manualMode);
+        applyFieldStyle(modpackCompatField, !manualMode);
+        applyFieldStyle(jvmArgsField, true);
+        applyFieldStyle(gameArgsField, true);
+        if (manualModeBtn != null && modpackModeBtn != null) {
+            manualModeBtn.putClientProperty("modeActive", manualMode);
+            modpackModeBtn.putClientProperty("modeActive", !manualMode);
+            manualModeBtn.setText((manualMode ? "● " : "○ ") + "Instancia");
+            modpackModeBtn.setText((manualMode ? "○ " : "● ") + "Modpack");
+            manualModeBtn.setEnabled(true);
+            modpackModeBtn.setEnabled(true);
+            manualModeBtn.repaint();
+            modpackModeBtn.repaint();
+        }
+
+        if (saveBtn != null && editingProfileId == null) {
+            saveBtn.setText(manualMode ? "CREAR INSTANCIA" : "IMPORTAR MODPACK");
+            saveBtn.repaint();
+        }
+    }
+
+    private boolean isModpackImportMode() {
+        return modpackImportMode;
+    }
+
+    private void applyFieldStyle(JComponent component, boolean enabled) {
+        Color bg = enabled ? new Color(0x08, 0x08, 0x22) : new Color(0x11, 0x11, 0x1b);
+        Color fg = enabled ? C_TEXT : C_DIM;
+        component.setBackground(bg);
+        component.setForeground(fg);
+        component.setEnabled(enabled);
+        if (component instanceof JTextField field) {
+            field.setCaretColor(enabled ? C_TEXT : C_DIM);
+        }
     }
 
     private void refreshLoaderSuggestions() {
@@ -826,8 +965,7 @@ public final class LauncherFrame extends JFrame {
                 appendOutput(">>> Minecraft lanzado! ID=" + launchId);
                 appendOutput("--------------------------------------------------");
                 // Repintar botones para mostrar "RUNNING"
-                if (launchBtn != null) launchBtn.repaint();
-                if (playBtn   != null) playBtn.repaint();
+                repaintPlayButtons();
                 // Iniciar polling de output
                 startOutputPolling(launchId);
             });
@@ -906,8 +1044,7 @@ public final class LauncherFrame extends JFrame {
                         appendOutput("=== Minecraft ha terminado ===");
                         updateStatus("Listo", 0);
                         setLaunchEnabled(true);
-                        if (launchBtn != null) launchBtn.repaint();
-                        if (playBtn   != null) playBtn.repaint();
+                        repaintPlayButtons();
                     });
                 }
             } catch (Exception ignored) {}
@@ -921,8 +1058,13 @@ public final class LauncherFrame extends JFrame {
         }
     }
     private void setLaunchEnabled(boolean enabled) {
-        if (launchBtn != null) launchBtn.setEnabled(enabled);
         if (playBtn   != null) playBtn.setEnabled(enabled);
+        if (profilesPlayBtn != null) profilesPlayBtn.setEnabled(enabled);
+    }
+
+    private void repaintPlayButtons() {
+        if (playBtn != null) playBtn.repaint();
+        if (profilesPlayBtn != null) profilesPlayBtn.repaint();
     }
     private void updateStatus(String text, int prog) {
         statusLbl.setText(text);
@@ -1073,7 +1215,6 @@ public final class LauncherFrame extends JFrame {
 
     private void addFormField(JPanel panel, String labelText, JComboBox<String> combo) {
         JLabel lbl = new JLabel(labelText); lbl.setFont(new Font("Dialog", Font.PLAIN, 11)); lbl.setForeground(C_TEXT);
-        combo.setEditable(true);
         combo.setBackground(new Color(0x08, 0x08, 0x22));
         combo.setForeground(C_TEXT);
         combo.setFont(new Font("Dialog", Font.PLAIN, 11));
@@ -1091,9 +1232,9 @@ public final class LauncherFrame extends JFrame {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof MinecraftProfile p) {
                 String icon = profileIcon(p);
-                String loader = (p.loaderType() == null || p.loaderType().isBlank()) ? "VANILLA" : p.loaderType();
+                String mode = p.hasModpack() ? "MODPACK IMPORTADO" : "INSTANCIA " + ((p.loaderType() == null || p.loaderType().isBlank()) ? "VANILLA" : p.loaderType());
                 setText("<html><div style='font-size: 11pt'>" + icon + " <b style='color: #00e5ff; font-size: 12pt'>" + p.displayName() 
-                        + "</b><br><span style='color: #9090bb; font-size: 10pt'>&nbsp;&nbsp;" + p.gameVersion() + " " + loader + "</span></div></html>");
+                        + "</b><br><span style='color: #9090bb; font-size: 10pt'>&nbsp;&nbsp;" + p.gameVersion() + " • " + mode + "</span></div></html>");
             }
             setBackground(isSelected ? new Color(0x18, 0x18, 0x44) : new Color(0x08, 0x08, 0x1e));
             setForeground(isSelected ? C_CYAN : C_TEXT);
@@ -1112,9 +1253,9 @@ public final class LauncherFrame extends JFrame {
             super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof MinecraftProfile p) {
                 String icon = profileIcon(p);
-                String loader = (p.loaderType() == null || p.loaderType().isBlank()) ? "VANILLA" : p.loaderType();
+                String mode = p.hasModpack() ? "MODPACK IMPORTADO" : "INSTANCIA " + ((p.loaderType() == null || p.loaderType().isBlank()) ? "VANILLA" : p.loaderType());
                 setText("<html><div style='font-size: 11pt'>" + icon + " <b style='color: #00e5ff; font-size: 12pt'>" + p.displayName() 
-                        + "</b><br><span style='color: #9090bb; font-size: 10pt'>&nbsp;&nbsp;" + p.gameVersion() + " " + loader + "</span></div></html>");
+                        + "</b><br><span style='color: #9090bb; font-size: 10pt'>&nbsp;&nbsp;" + p.gameVersion() + " • " + mode + "</span></div></html>");
             }
             setBackground(isSelected ? new Color(0x18, 0x18, 0x44) : new Color(0x08, 0x08, 0x1e));
             setForeground(isSelected ? C_CYAN : C_TEXT);

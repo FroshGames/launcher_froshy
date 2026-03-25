@@ -129,6 +129,7 @@ public final class LauncherService {
     public LaunchResult launch(LaunchRequest request) {
         MinecraftProfile profile = Optional.ofNullable(profiles.get(request.profileId()))
                 .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + request.profileId()));
+        Path instanceDir = profileGameDirectory(profile);
 
         String effectiveVersion;
         try {
@@ -137,10 +138,11 @@ public final class LauncherService {
             throw new IllegalStateException("No se pudo leer el modpack del perfil: " + ex.getMessage(), ex);
         }
 
-        return launchWithVersion(request, profile, effectiveVersion);
+        return launchWithVersion(request, profile, effectiveVersion, instanceDir);
     }
 
-    private LaunchResult launchWithVersion(LaunchRequest request, MinecraftProfile profile, String effectiveVersion) {
+    private LaunchResult launchWithVersion(LaunchRequest request, MinecraftProfile profile,
+                                           String effectiveVersion, Path gameDir) {
 
         // Extraer username de los gameArgs del perfil (--username <valor>)
         String username = extractUsername(profile);
@@ -149,7 +151,7 @@ public final class LauncherService {
         VersionInstallation install;
         try {
             install = versionDownloader.buildInstallation(
-                    effectiveVersion, config.gameDirectory(), username);
+                    effectiveVersion, gameDir, username);
         } catch (IOException ex) {
             throw new IllegalStateException(
                     "Version " + effectiveVersion + " no preparada: " + ex.getMessage(), ex);
@@ -173,9 +175,9 @@ public final class LauncherService {
         String cmdLine   = String.join(" ", cmd);
 
         try {
-            Files.createDirectories(config.gameDirectory());
+            Files.createDirectories(gameDir);
             ProcessBuilder pb = new ProcessBuilder(cmd);
-            pb.directory(config.gameDirectory().toFile());
+            pb.directory(gameDir.toFile());
             pb.redirectErrorStream(true);   // stderr → stdout
 
             Process process = pb.start();
@@ -195,10 +197,11 @@ public final class LauncherService {
     public LaunchResult prepareAndLaunch(LaunchRequest request) {
         MinecraftProfile profile = Optional.ofNullable(profiles.get(request.profileId()))
                 .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + request.profileId()));
+        Path instanceDir = profileGameDirectory(profile);
 
         try {
-            LaunchPlan plan = prepareProfile(profile, (p, m) -> {});
-            return launchWithVersion(request, profile, plan.effectiveVersionId());
+            LaunchPlan plan = prepareProfile(profile, instanceDir, (p, m) -> {});
+            return launchWithVersion(request, profile, plan.effectiveVersionId(), instanceDir);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("No se pudo preparar el lanzamiento: " + ex.getMessage(), ex);
@@ -372,6 +375,12 @@ public final class LauncherService {
         return this.modpackCompatibilityMode;
     }
 
+    public String getProfileInstancePath(String profileId) {
+        MinecraftProfile profile = Optional.ofNullable(profiles.get(profileId))
+                .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + profileId));
+        return profileGameDirectory(profile).toAbsolutePath().toString();
+    }
+
     public void shutdown() {
         downloadTasks.values().forEach(t -> t.cancel(false));
         scheduler.shutdownNow();
@@ -424,6 +433,7 @@ public final class LauncherService {
     private void runPreparedLaunch(String operationId, LaunchRequest request, MinecraftProfile profile) {
         try {
             LaunchPlan basePlan = resolveLaunchPlan(profile);
+            Path instanceDir = profileGameDirectory(profile);
             preparedLaunches.put(operationId, new PreparedLaunchStatus(
                     operationId,
                     profile.id(),
@@ -433,37 +443,22 @@ public final class LauncherService {
                     "Verificando instalacion de Minecraft " + basePlan.minecraftVersion() + "..."
             ));
 
-            DownloadStatus prep = prepareVersion(basePlan.minecraftVersion());
-
-            for (;;) {
-                DownloadStatus status = downloads.get(prep.downloadId());
-                if (status == null) {
-                    throw new IllegalStateException("No se encontro el estado de preparacion de " + basePlan.minecraftVersion());
-                }
-
-                if ("DONE".equals(status.state())) {
-                    break;
-                }
-                if ("FAILED".equals(status.state())) {
-                    throw new IllegalStateException(status.message());
-                }
-
-                int mappedProgress = Math.max(1, Math.min(60, status.progress() * 60 / 100));
-                String message = (status.message() == null || status.message().isBlank())
+            versionDownloader.downloadVersion(basePlan.minecraftVersion(), instanceDir, (progress, message) -> {
+                int mappedProgress = Math.max(1, Math.min(60, progress * 60 / 100));
+                String safeMessage = (message == null || message.isBlank())
                         ? "Preparando archivos de Minecraft..."
-                        : status.message();
+                        : message;
                 preparedLaunches.put(operationId, new PreparedLaunchStatus(
                         operationId,
                         profile.id(),
                         basePlan.minecraftVersion(),
                         "PREPARING",
                         mappedProgress,
-                        message
+                        safeMessage
                 ));
-                Thread.sleep(250);
-            }
+            });
 
-            LaunchPlan readyPlan = prepareLoadersAndModpack(operationId, profile, basePlan);
+            LaunchPlan readyPlan = prepareLoadersAndModpack(operationId, profile, basePlan, instanceDir);
 
             preparedLaunches.put(operationId, new PreparedLaunchStatus(
                     operationId,
@@ -474,7 +469,7 @@ public final class LauncherService {
                     "Iniciando Minecraft..."
             ));
 
-            LaunchResult result = launchWithVersion(request, profile, readyPlan.effectiveVersionId());
+            LaunchResult result = launchWithVersion(request, profile, readyPlan.effectiveVersionId(), instanceDir);
 
             preparedLaunches.put(operationId, new PreparedLaunchStatus(
                     operationId,
@@ -497,7 +492,8 @@ public final class LauncherService {
         }
     }
 
-    private LaunchPlan prepareLoadersAndModpack(String operationId, MinecraftProfile profile, LaunchPlan basePlan)
+    private LaunchPlan prepareLoadersAndModpack(String operationId, MinecraftProfile profile,
+                                                LaunchPlan basePlan, Path gameDir)
             throws IOException, InterruptedException {
         String effectiveVersion = basePlan.minecraftVersion();
 
@@ -515,7 +511,7 @@ public final class LauncherService {
                     basePlan.loaderType(),
                     basePlan.minecraftVersion(),
                     basePlan.loaderVersion(),
-                    config.gameDirectory(),
+                    gameDir,
                     (progress, message) -> preparedLaunches.put(operationId, new PreparedLaunchStatus(
                             operationId,
                             profile.id(),
@@ -531,7 +527,7 @@ public final class LauncherService {
             Path modpackPath = basePlan.modpackPath();
             ModpackManifest manifest = parseAndValidateModpack(modpackPath);
             String launchVersion = effectiveVersion;
-            modpackInstaller.installModpackFiles(modpackPath, manifest, config.gameDirectory(), (progress, message) ->
+            modpackInstaller.installModpackFiles(modpackPath, manifest, gameDir, (progress, message) ->
                     preparedLaunches.put(operationId, new PreparedLaunchStatus(
                             operationId,
                             profile.id(),
@@ -552,13 +548,12 @@ public final class LauncherService {
         );
     }
 
-    private LaunchPlan prepareProfile(MinecraftProfile profile, BiConsumer<Integer, String> progress)
+    private LaunchPlan prepareProfile(MinecraftProfile profile, Path gameDir, BiConsumer<Integer, String> progress)
             throws IOException, InterruptedException {
         LaunchPlan plan = resolveLaunchPlan(profile);
 
         progress.accept(0, "Preparando Minecraft " + plan.minecraftVersion() + "...");
-        DownloadStatus prep = prepareVersion(plan.minecraftVersion());
-        waitForDownloadCompletion(prep.downloadId(), plan.minecraftVersion());
+        versionDownloader.downloadVersion(plan.minecraftVersion(), gameDir, progress);
 
         String effectiveVersion = plan.minecraftVersion();
         if (plan.hasLoader()) {
@@ -566,14 +561,14 @@ public final class LauncherService {
                     plan.loaderType(),
                     plan.minecraftVersion(),
                     plan.loaderVersion(),
-                    config.gameDirectory(),
+                    gameDir,
                     progress
             );
         }
 
         if (plan.hasModpack()) {
             ModpackManifest manifest = parseAndValidateModpack(plan.modpackPath());
-            modpackInstaller.installModpackFiles(plan.modpackPath(), manifest, config.gameDirectory(), progress);
+            modpackInstaller.installModpackFiles(plan.modpackPath(), manifest, gameDir, progress);
         }
 
         return new LaunchPlan(plan.minecraftVersion(), plan.loaderType(), plan.loaderVersion(), plan.modpackPath(), effectiveVersion);
@@ -619,6 +614,11 @@ public final class LauncherService {
                     + modpackCompatibilityMode + "): " + manifest.source());
         }
         return manifest;
+    }
+
+    private Path profileGameDirectory(MinecraftProfile profile) {
+        String safeId = profile.id().replaceAll("[^a-zA-Z0-9._-]", "_");
+        return config.gameDirectory().resolve("instances").resolve(safeId);
     }
 
     private record LaunchPlan(
