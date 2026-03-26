@@ -17,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -93,6 +92,7 @@ public final class LauncherService {
     public MinecraftProfile createProfile(MinecraftProfile profile) {
         if (profiles.containsKey(profile.id()))
             throw new IllegalArgumentException("Ya existe un perfil con id: " + profile.id());
+        ensureProfileInstanceDirectory(profile);
         profiles.put(profile.id(), profile);
         profileStore.save(profiles.values());
         return profile;
@@ -119,6 +119,7 @@ public final class LauncherService {
                 changes.modpackPath()
         );
 
+        ensureProfileInstanceDirectory(updated);
         profiles.put(existingId, updated);
         profileStore.save(profiles.values());
         return updated;
@@ -258,7 +259,7 @@ public final class LauncherService {
     }
 
     private void startOutputReader(String launchId, Process process) {
-        List<String> buffer = Collections.synchronizedList(new LinkedList<>());
+        LinkedList<String> buffer = new LinkedList<>();
         processOutputs.put(launchId, buffer);
 
         Thread t = new Thread(() -> {
@@ -269,7 +270,7 @@ public final class LauncherService {
                     synchronized (buffer) {
                         buffer.add(line);
                         if (buffer.size() > MAX_OUTPUT_LINES)
-                            ((LinkedList<String>) buffer).removeFirst();
+                            buffer.removeFirst();
                     }
                 }
             } catch (IOException ignored) {}
@@ -378,7 +379,7 @@ public final class LauncherService {
     public String getProfileInstancePath(String profileId) {
         MinecraftProfile profile = Optional.ofNullable(profiles.get(profileId))
                 .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + profileId));
-        return profileGameDirectory(profile).toAbsolutePath().toString();
+        return ensureProfileInstanceDirectory(profile).toAbsolutePath().toString();
     }
 
     public void shutdown() {
@@ -409,25 +410,6 @@ public final class LauncherService {
         }
         // Fallback: usar el nombre del perfil sin espacios
         return profile.displayName().replaceAll("\\s+", "_");
-    }
-
-    private void waitForDownloadCompletion(String downloadId, String gameVersion) {
-        for (;;) {
-            DownloadStatus status = downloads.get(downloadId);
-            if (status == null) {
-                throw new IllegalStateException("No se encontro el estado de descarga para " + gameVersion);
-            }
-            if ("DONE".equals(status.state())) return;
-            if ("FAILED".equals(status.state())) {
-                throw new IllegalStateException("No se pudo preparar " + gameVersion + ": " + status.message());
-            }
-            try {
-                Thread.sleep(250);
-            } catch (InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrumpido preparando " + gameVersion, ex);
-            }
-        }
     }
 
     private void runPreparedLaunch(String operationId, LaunchRequest request, MinecraftProfile profile) {
@@ -619,6 +601,16 @@ public final class LauncherService {
     private Path profileGameDirectory(MinecraftProfile profile) {
         String safeId = profile.id().replaceAll("[^a-zA-Z0-9._-]", "_");
         return config.gameDirectory().resolve("instances").resolve(safeId);
+    }
+
+    private Path ensureProfileInstanceDirectory(MinecraftProfile profile) {
+        Path instanceDir = profileGameDirectory(profile);
+        try {
+            Files.createDirectories(instanceDir);
+            return instanceDir;
+        } catch (IOException ex) {
+            throw new IllegalStateException("No se pudo preparar la instancia del perfil " + profile.id(), ex);
+        }
     }
 
     private record LaunchPlan(

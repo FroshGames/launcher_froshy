@@ -164,6 +164,47 @@ class LauncherServiceTest {
             assertEquals(1, service.listProfiles().size());
             assertEquals("survival", service.listProfiles().get(0).id());
             assertTrue(service.getProfileInstancePath("survival").endsWith("instances" + java.io.File.separator + "survival"));
+            assertTrue(Files.isDirectory(Path.of(service.getProfileInstancePath("survival"))));
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
+    void shouldKeepSeparateInstanceDirectoriesPerProfile() {
+        LauncherConfig config = new LauncherConfig(
+                tempDir,
+                tempDir.resolve("profiles.json"),
+                tempDir.resolve("game"),
+                7878,
+                "1.0-SNAPSHOT",
+                ""
+        );
+        LauncherService service = new LauncherService(
+                config,
+                new ProfileStore(config.profilesFile(), new ObjectMapper())
+        );
+
+        try {
+            service.createProfile(new MinecraftProfile(
+                    "forge-a", "Forge A", "java", "1.20.1",
+                    List.of("-Xmx2G"), List.of("--username", "Alex"),
+                    "FORGE", "47.3.0", ""
+            ));
+            service.createProfile(new MinecraftProfile(
+                    "forge-b", "Forge B", "java", "1.20.1",
+                    List.of("-Xmx2G"), List.of("--username", "Steve"),
+                    "FORGE", "47.3.0", ""
+            ));
+
+            Path instanceA = Path.of(service.getProfileInstancePath("forge-a"));
+            Path instanceB = Path.of(service.getProfileInstancePath("forge-b"));
+
+            assertTrue(Files.isDirectory(instanceA));
+            assertTrue(Files.isDirectory(instanceB));
+            assertTrue(instanceA.endsWith(Path.of("instances", "forge-a")));
+            assertTrue(instanceB.endsWith(Path.of("instances", "forge-b")));
+            assertTrue(!instanceA.equals(instanceB));
         } finally {
             service.shutdown();
         }

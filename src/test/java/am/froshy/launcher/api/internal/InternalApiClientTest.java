@@ -41,13 +41,12 @@ class InternalApiClientTest {
         @Override
         public am.froshy.launcher.application.VersionInstallation buildInstallation(
                 String version, Path gameDir, String username) {
-            Path jar = gameDir.resolve("versions").resolve(version).resolve(version + ".jar");
             Path natives = gameDir.resolve("versions").resolve(version).resolve("natives");
             return new am.froshy.launcher.application.VersionInstallation(
-                    List.of(jar),
-                    "net.minecraft.client.main.Main",
-                    List.of("-cp", jar.toAbsolutePath().toString()),
-                    List.of("--username", username),
+                    List.of(),
+                    SleepMain.class.getName(),
+                    List.of("-cp", System.getProperty("java.class.path")),
+                    List.of(username),
                     natives
             );
         }
@@ -132,6 +131,12 @@ class InternalApiClientTest {
             assertEquals("MODRINTH_ONLY", client.getModpackCompatibilityMode());
         } finally {
             server.stop();
+        }
+    }
+
+    public static final class SleepMain {
+        public static void main(String[] args) throws Exception {
+            Thread.sleep(2_000L);
         }
     }
 }

@@ -19,7 +19,10 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
@@ -40,6 +43,37 @@ public final class ModpackInstaller {
     private static final String CURSE_API  = "https://api.curse.tools/v1/cf";
     private static final int    MOD_THREADS = 8;
     private static final int    MAX_RETRIES = 3;
+    private static final String MODPACK_STATE_FILE = ".froshy-modpack-state.json";
+    private static final List<String> LEGACY_MANAGED_PATHS = List.of(
+            "mods",
+            "resourcepacks",
+            "texturepacks",
+            "shaderpacks",
+            "config",
+            "defaultconfigs",
+            "kubejs",
+            "datapacks",
+            "patchouli_books",
+            "options.txt",
+            "optionsof.txt",
+            "optionsshaders.txt",
+            "servers.dat"
+    );
+    private static final Set<String> CLIENT_CONTENT_ROOTS = Set.of(
+            "mods",
+            "config",
+            "defaultconfigs",
+            "resourcepacks",
+            "texturepacks",
+            "shaderpacks",
+            "kubejs",
+            "datapacks",
+            "patchouli_books",
+            "options.txt",
+            "optionsof.txt",
+            "optionsshaders.txt",
+            "servers.dat"
+    );
 
     private final HttpClient   http;
     private final ObjectMapper mapper;
@@ -152,20 +186,29 @@ public final class ModpackInstaller {
     public void installModpackFiles(Path zipFile, ModpackManifest manifest, Path gameDir,
             BiConsumer<Integer, String> progress) throws IOException, InterruptedException {
 
-        progress.accept(0, "Limpiando mods previos para evitar conflictos...");
-        purgeModsDirectory(gameDir);
+        progress.accept(0, "Preparando la instancia del perfil...");
+        Files.createDirectories(gameDir);
 
-        progress.accept(0, "Extrayendo archivos base del modpack...");
-        extractOverrides(zipFile, gameDir, manifest.source());
+        Set<String> managedPaths = collectManagedPaths(zipFile, manifest);
+
+        progress.accept(2, "Limpiando archivos previos del modpack...");
+        purgeManagedContent(gameDir, managedPaths);
+
+        progress.accept(8, "Extrayendo overrides y contenido del modpack...");
+        extractOverrides(zipFile, gameDir);
 
         List<ModpackFile> files = manifest.files();
         if ("CURSEFORGE".equals(manifest.source())) {
-            progress.accept(5, "Resolviendo URLs de mods desde CurseForge...");
+            progress.accept(12, "Resolviendo URLs de archivos desde CurseForge...");
             files = resolveCurseForgeUrls(files, progress);
         }
 
         int total = files.size();
-        if (total == 0) { progress.accept(100, "Sin mods que descargar."); return; }
+        if (total == 0) {
+            writeInstalledState(gameDir, managedPaths);
+            progress.accept(100, "Modpack instalado: " + manifest.name());
+            return;
+        }
 
         AtomicInteger ready = new AtomicInteger(0);
         List<DownloadItem> tasks = new ArrayList<>();
@@ -175,47 +218,68 @@ public final class ModpackInstaller {
                 ready.incrementAndGet();
                 continue;
             }
-            Path dest = gameDir.resolve(file.path().replace("/", File.separator));
+            Path dest = resolveGamePath(gameDir, file.path());
             if (isValidFile(dest, file.size())) { ready.incrementAndGet(); continue; }
             tasks.add(new DownloadItem(file.downloadUrl(), dest, file.sha1(), file.sha512(), file.size()));
         }
 
         int preDone = ready.get();
         int initPct = 10 + preDone * 85 / Math.max(total, 1);
-        progress.accept(initPct, "Mods: " + preDone + "/" + total + " ya presentes.");
+        progress.accept(initPct, "Archivos del modpack: " + preDone + "/" + total + " ya presentes.");
 
         downloadMods(tasks, total, preDone, progress);
+        writeInstalledState(gameDir, managedPaths);
         progress.accept(100, "Modpack instalado: " + manifest.name());
     }
 
-    private void purgeModsDirectory(Path gameDir) throws IOException {
-        Path modsDir = gameDir.resolve("mods");
-        if (!Files.isDirectory(modsDir)) {
-            return;
+    private Set<String> collectManagedPaths(Path zipFile, ModpackManifest manifest) throws IOException {
+        Set<String> managed = new LinkedHashSet<>();
+        for (ModpackFile file : manifest.files()) {
+            String normalized = normalizeRelativePath(file.path());
+            if (!normalized.isBlank()) {
+                managed.add(normalized);
+            }
         }
-        try (java.util.stream.Stream<Path> walk = Files.walk(modsDir)) {
-            walk
-                    .filter(Files::isRegularFile)
-                    .filter(p -> p.getFileName().toString().toLowerCase().endsWith(".jar"))
-                    .forEach(p -> {
-                        try {
-                            Files.deleteIfExists(p);
-                        } catch (IOException ignored) {
-                            // Si un archivo está bloqueado, se reintentará en el siguiente ciclo.
-                        }
-                    });
-        }
-    }
 
-    private void extractOverrides(Path zipFile, Path gameDir, String source) throws IOException {
         try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(zipFile))) {
             ZipEntry entry;
             while ((entry = zip.getNextEntry()) != null) {
-                String relative = resolveOverridesRelativePath(entry.getName());
+                String relative = resolvePackContentRelativePath(entry.getName());
                 if (relative != null && !entry.isDirectory()) {
-                    if (relative.isBlank()) { zip.closeEntry(); continue; }
-                    Path dest = gameDir.resolve(relative.replace("/", File.separator));
-                    Files.createDirectories(dest.getParent());
+                    String normalized = normalizeRelativePath(relative);
+                    if (!normalized.isBlank()) {
+                        managed.add(normalized);
+                    }
+                }
+                zip.closeEntry();
+            }
+        }
+        return managed;
+    }
+
+    private void purgeManagedContent(Path gameDir, Set<String> nextManagedPaths) throws IOException {
+        Set<String> pathsToDelete = new LinkedHashSet<>(loadInstalledState(gameDir));
+        if (pathsToDelete.isEmpty()) {
+            pathsToDelete.addAll(LEGACY_MANAGED_PATHS);
+        }
+        pathsToDelete.addAll(nextManagedPaths);
+
+        for (String relativePath : pathsToDelete) {
+            deleteRecursively(resolveGamePath(gameDir, relativePath));
+        }
+        Files.deleteIfExists(gameDir.resolve(MODPACK_STATE_FILE));
+    }
+
+    private void extractOverrides(Path zipFile, Path gameDir) throws IOException {
+        try (ZipInputStream zip = new ZipInputStream(Files.newInputStream(zipFile))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                String relative = resolvePackContentRelativePath(entry.getName());
+                if (relative != null && !entry.isDirectory()) {
+                    Path dest = resolveGamePath(gameDir, relative);
+                    if (dest.getParent() != null) {
+                        Files.createDirectories(dest.getParent());
+                    }
                     Files.copy(zip, dest, StandardCopyOption.REPLACE_EXISTING);
                 }
                 zip.closeEntry();
@@ -234,9 +298,14 @@ public final class ModpackInstaller {
         return lower.equals(expected) || lower.endsWith("/" + expected);
     }
 
-    private String resolveOverridesRelativePath(String entryName) {
+    private String resolvePackContentRelativePath(String entryName) {
         String normalized = normalizeZipEntryName(entryName);
         String lower = normalized.toLowerCase();
+
+        if (isMetadataEntry(lower)) {
+            return null;
+        }
+
         for (String marker : List.of("overrides/", "client-overrides/")) {
             if (lower.startsWith(marker)) {
                 return normalized.substring(marker.length());
@@ -246,7 +315,84 @@ public final class ModpackInstaller {
                 return normalized.substring(nested + marker.length() + 1);
             }
         }
+
+        for (String marker : List.of("minecraft/", ".minecraft/")) {
+            if (lower.startsWith(marker)) {
+                return normalized.substring(marker.length());
+            }
+            int nested = lower.indexOf("/" + marker);
+            if (nested >= 0) {
+                return normalized.substring(nested + marker.length() + 1);
+            }
+        }
+
+        if (isClientContentPath(lower)) {
+            return normalized;
+        }
+
+        int slash = lower.lastIndexOf('/');
+        if (slash >= 0) {
+            String tail = lower.substring(slash + 1);
+            if (CLIENT_CONTENT_ROOTS.contains(tail)) {
+                return normalized.substring(slash + 1);
+            }
+        }
         return null;
+    }
+
+    private boolean isClientContentPath(String lowerPath) {
+        for (String root : CLIENT_CONTENT_ROOTS) {
+            if (lowerPath.equals(root) || lowerPath.startsWith(root + "/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isMetadataEntry(String lowerPath) {
+        return lowerPath.equals("modrinth.index.json")
+                || lowerPath.endsWith("/modrinth.index.json")
+                || lowerPath.equals("manifest.json")
+                || lowerPath.endsWith("/manifest.json")
+                || lowerPath.equals("minecraftinstance.json")
+                || lowerPath.endsWith("/minecraftinstance.json")
+                || lowerPath.equals("instance.cfg")
+                || lowerPath.endsWith("/instance.cfg");
+    }
+
+    private Path resolveGamePath(Path gameDir, String relativePath) throws IOException {
+        String normalizedRelative = normalizeRelativePath(relativePath);
+        Path normalizedGameDir = gameDir.toAbsolutePath().normalize();
+        Path resolved = normalizedGameDir.resolve(normalizedRelative.replace("/", File.separator)).normalize();
+        if (!resolved.startsWith(normalizedGameDir)) {
+            throw new IOException("Ruta fuera de la instancia no permitida: " + relativePath);
+        }
+        return resolved;
+    }
+
+    private String normalizeRelativePath(String relativePath) throws IOException {
+        if (relativePath == null) {
+            throw new IOException("El modpack contiene una ruta nula");
+        }
+
+        String normalized = relativePath.replace('\\', '/').trim();
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+
+        if (normalized.isBlank()) {
+            return "";
+        }
+        if (normalized.matches("^[A-Za-z]:.*")) {
+            throw new IOException("Ruta absoluta no permitida en modpack: " + relativePath);
+        }
+
+        Path safePath = Path.of(normalized).normalize();
+        String result = safePath.toString().replace('\\', '/');
+        if (safePath.isAbsolute() || result.equals("..") || result.startsWith("../") || result.isBlank()) {
+            throw new IOException("Ruta relativa no valida en modpack: " + relativePath);
+        }
+        return result;
     }
 
     private List<ModpackFile> resolveCurseForgeUrls(List<ModpackFile> files,
@@ -289,7 +435,9 @@ public final class ModpackInstaller {
 
         for (DownloadItem task : tasks) {
             cs.submit(() -> {
-                Files.createDirectories(task.dest().getParent());
+                if (task.dest().getParent() != null) {
+                    Files.createDirectories(task.dest().getParent());
+                }
                 downloadWithRetry(task.url(), task.dest());
                 return null;
             });
@@ -305,7 +453,7 @@ public final class ModpackInstaller {
                 }
                 int current = done.incrementAndGet();
                 int pct = 10 + current * 85 / Math.max(totalMods, 1);
-                progress.accept(pct, "Mods: " + current + "/" + totalMods + " (" + pct + "%)");
+                progress.accept(pct, "Archivos del modpack: " + current + "/" + totalMods + " (" + pct + "%)");
             }
         } finally {
             pool.shutdown();
@@ -597,6 +745,51 @@ public final class ModpackInstaller {
     private boolean isValidFile(Path p, long minSize) {
         try { return Files.exists(p) && (minSize <= 0 || Files.size(p) >= minSize); }
         catch (IOException e) { return false; }
+    }
+
+    private List<String> loadInstalledState(Path gameDir) {
+        Path stateFile = gameDir.resolve(MODPACK_STATE_FILE);
+        if (!Files.exists(stateFile)) {
+            return List.of();
+        }
+        try {
+            InstalledModpackState state = mapper.readValue(stateFile.toFile(), InstalledModpackState.class);
+            if (state == null || state.managedPaths == null) {
+                return List.of();
+            }
+            return state.managedPaths.stream().distinct().toList();
+        } catch (IOException ex) {
+            return List.of();
+        }
+    }
+
+    private void writeInstalledState(Path gameDir, Set<String> managedPaths) throws IOException {
+        InstalledModpackState state = new InstalledModpackState();
+        state.managedPaths.addAll(managedPaths.stream().sorted().toList());
+        mapper.writerWithDefaultPrettyPrinter().writeValue(gameDir.resolve(MODPACK_STATE_FILE).toFile(), state);
+    }
+
+    private void deleteRecursively(Path target) throws IOException {
+        if (!Files.exists(target)) {
+            return;
+        }
+        if (!Files.isDirectory(target)) {
+            Files.deleteIfExists(target);
+            return;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(target)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                    // Si está bloqueado, se reintentará en la siguiente preparación.
+                }
+            });
+        }
+    }
+
+    private static final class InstalledModpackState {
+        public List<String> managedPaths = new ArrayList<>();
     }
 
     private record DownloadItem(String url, Path dest, String sha1, String sha512, long size) {}
