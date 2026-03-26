@@ -129,6 +129,10 @@ class InternalApiClientTest {
             assertEquals("BOTH", client.getModpackCompatibilityMode());
             assertEquals("MODRINTH_ONLY", client.setModpackCompatibilityMode("MODRINTH_ONLY"));
             assertEquals("MODRINTH_ONLY", client.getModpackCompatibilityMode());
+
+            client.deleteProfile("builder");
+            assertEquals(0, client.listProfiles().size());
+            assertTrue(Files.notExists(Path.of(instancePath)));
         } finally {
             server.stop();
         }

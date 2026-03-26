@@ -43,6 +43,7 @@ public final class LauncherFrame extends JFrame {
     private final JList<MinecraftProfile> profilesList = new JList<>(profilesModel);
     private final JTextField idField       = new JTextField();
     private final JTextField nameField     = new JTextField();
+    private final JComboBox<String> profileModeField = new JComboBox<>(new String[]{"INSTANCIA MANUAL", "IMPORTAR MODPACK"});
     private final JComboBox<String> versionField = new JComboBox<>(new String[]{"1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.2", "1.18.2", "1.16.5", "1.12.2"});
     private final JComboBox<String> loaderTypeField = new JComboBox<>(new String[]{"VANILLA", "FORGE", "NEOFORGE", "FABRIC", "QUILT"});
     private final JComboBox<String> loaderVersionField = new JComboBox<>(new String[]{"", "latest"});
@@ -54,8 +55,6 @@ public final class LauncherFrame extends JFrame {
     private final JTextArea  outputArea    = new JTextArea();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JProgressBar phaseProgressBar = new JProgressBar(0, 100);
-    private final JLabel instancePathHomeLbl = new JLabel("Instancia: -");
-    private final JLabel instancePathFormLbl = new JLabel("-");
     private final JLabel statusLbl = new JLabel("Listo");
     private final JLabel phaseLbl = new JLabel("IDLE");
     private final JLabel healthLbl = new JLabel("\u25CF API");
@@ -65,18 +64,17 @@ public final class LauncherFrame extends JFrame {
     private volatile String          currentLaunchId = null;
     private volatile int             lastOutputIdx   = 0;
     private          ScheduledFuture<?> outputPoll  = null;
+    private JButton    launchBtn;
     private JButton    playBtn;
-    private JButton    manualModeBtn;
-    private JButton    modpackModeBtn;
     private JButton    saveBtn;
     private JButton    modpackBrowseBtn;
     private boolean    suppressComboEvents = false;
     private String     editingProfileId = null;
-    private boolean    modpackImportMode = false;
     private JPanel     contentStack;
     private CardLayout contentCards;
     private Point      dragOrigin;
     private JButton    profilesPlayBtn;
+    private JButton    deleteBtn;
     public LauncherFrame(InternalApiClient apiClient, int apiPort, String launcherVersion, Runnable onClose) {
         super();
         this.apiClient       = apiClient;
@@ -198,8 +196,13 @@ public final class LauncherFrame extends JFrame {
         };
         mainTitle.setFont(new Font("Dialog", Font.BOLD, 26)); mainTitle.setForeground(C_CYAN);
         mainTitle.setPreferredSize(new Dimension(0, 38));
+        launchBtn = buildNeonBtn("LAUNCH MINECRAFT", C_MAGENTA, 224, 38);
+        launchBtn.addActionListener(e -> launchSelectedProfile());
+        JPanel launchRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 2));
+        launchRow.setOpaque(false); launchRow.add(launchBtn);
         header.add(logoRow,   BorderLayout.NORTH);
         header.add(mainTitle, BorderLayout.CENTER);
+        header.add(launchRow, BorderLayout.SOUTH);
         contentCards = new CardLayout();
         contentStack = new JPanel(contentCards) {
             @Override protected void paintComponent(Graphics g) {
@@ -285,13 +288,11 @@ public final class LauncherFrame extends JFrame {
         profilesList.setFont(new Font("Dialog", Font.PLAIN, 12));
         profilesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         profilesList.setCellRenderer(new ProfileRenderer());
+        installDeleteContextMenu(profilesList);
         profilesList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 MinecraftProfile p = profilesList.getSelectedValue();
-                if (p != null) {
-                    selTitle.setText("\u25BA " + p.displayName() + "  \u2014  v" + p.gameVersion());
-                    updateInstancePathLabels(p);
-                }
+                if (p != null) selTitle.setText("\u25BA " + p.displayName() + "  \u2014  v" + p.gameVersion());
             }
         });
         JScrollPane scroll = new JScrollPane(profilesList);
@@ -321,19 +322,12 @@ public final class LauncherFrame extends JFrame {
 
         healthLbl.setFont(new Font("Dialog", Font.PLAIN, 10)); healthLbl.setForeground(C_GREEN);
         updateLbl.setFont(new Font("Dialog", Font.PLAIN, 10)); updateLbl.setForeground(C_DIM);
-        instancePathHomeLbl.setFont(new Font("Dialog", Font.PLAIN, 9));
-        instancePathHomeLbl.setForeground(C_DIM);
-        instancePathHomeLbl.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 0));
         JPanel infoRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0)); infoRow.setOpaque(false);
         infoRow.add(healthLbl); infoRow.add(updateLbl); infoRow.add(phaseLbl);
         JPanel bottomGroup = new JPanel(new BorderLayout(4, 2)); bottomGroup.setOpaque(false);
         bottomGroup.add(progressBar, BorderLayout.NORTH);
         bottomGroup.add(phaseProgressBar, BorderLayout.CENTER);
-        JPanel metaRows = new JPanel(new GridLayout(2, 1, 0, 2));
-        metaRows.setOpaque(false);
-        metaRows.add(infoRow);
-        metaRows.add(instancePathHomeLbl);
-        bottomGroup.add(metaRows, BorderLayout.SOUTH);
+        bottomGroup.add(infoRow, BorderLayout.SOUTH);
         panel.add(selTitle,    BorderLayout.NORTH);
         panel.add(scroll,      BorderLayout.CENTER);
         panel.add(bottomGroup, BorderLayout.SOUTH);
@@ -356,18 +350,18 @@ public final class LauncherFrame extends JFrame {
         JPanel form = new JPanel(new GridLayout(0, 1, 0, 6));
         form.setOpaque(false);
         form.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        profileModeField.setEditable(false);
         versionField.setEditable(false);
         loaderTypeField.setEditable(false);
         loaderVersionField.setEditable(true);
         modpackCompatField.setEditable(false);
         addFormField(form, "ID:", idField);
         addFormField(form, "Nombre:", nameField);
-        addFormField(form, "Modo:", buildProfileModeSwitcher());
+        addFormField(form, "Modo:", profileModeField);
         addFormField(form, "Version:", versionField);
         addFormField(form, "Loader:", loaderTypeField);
         addFormField(form, "Ver. Loader:", loaderVersionField);
         addFormField(form, "Modpack (.mrpack/.zip):", buildModpackPickerField());
-        addFormField(form, "Instancia:", instancePathFormLbl);
         addFormField(form, "JVM Args:", jvmArgsField);
         addFormField(form, "Game Args:", gameArgsField);
         addFormField(form, "Compat. modpacks:", modpackCompatField);
@@ -385,13 +379,13 @@ public final class LauncherFrame extends JFrame {
         profilesEditorList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         profilesEditorList.setFixedCellHeight(58);
         profilesEditorList.setCellRenderer(new ProfileEditorRenderer());
+        installDeleteContextMenu(profilesEditorList);
         profilesEditorList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 MinecraftProfile p = profilesEditorList.getSelectedValue();
                 if (p != null) {
                     loadProfileIntoForm(p);
                     profilesList.setSelectedValue(p, true);
-                    updateInstancePathLabels(p);
                 }
             }
         });
@@ -409,10 +403,13 @@ public final class LauncherFrame extends JFrame {
 
         JButton newBtn = buildNeonBtn("Nuevo perfil", C_CYAN, 140, 30);
         saveBtn = buildNeonBtn("GUARDAR CAMBIOS", C_MAGENTA, 210, 38);
+        deleteBtn = buildNeonBtn("Eliminar instancia", new Color(0xff, 0x44, 0x44), 190, 34);
         JButton refreshBtn = buildNeonBtn("Refrescar", C_BORDER, 110, 30);
         newBtn.addActionListener(e -> startCreateProfileMode());
         saveBtn.addActionListener(e -> upsertProfile());
+        deleteBtn.addActionListener(e -> deleteSelectedProfile());
         refreshBtn.addActionListener(e -> refreshProfiles());
+        profileModeField.addActionListener(e -> applyProfileModeUi());
         modpackCompatField.addActionListener(e -> updateModpackCompatibilityFromUi());
         versionField.addActionListener(e -> refreshLoaderSuggestions());
         loaderTypeField.addActionListener(e -> refreshLoaderSuggestions());
@@ -421,6 +418,7 @@ public final class LauncherFrame extends JFrame {
         btnRow.setOpaque(false);
         btnRow.add(refreshBtn);
         btnRow.add(newBtn);
+        btnRow.add(deleteBtn);
         btnRow.add(profilesPlayBtn);
         btnRow.add(saveBtn);
 
@@ -508,17 +506,13 @@ public final class LauncherFrame extends JFrame {
         return wrapper;
     }
     private JButton buildNeonBtn(String text, Color accent, int w, int h) {
-        // Para PLAY: refleja estado gameRunning
-        boolean isPlayBtn = "PLAY".equals(text);
-        boolean isStrongCta = "PLAY".equals(text)
-                || "GUARDAR CAMBIOS".equals(text)
-                || "CREAR INSTANCIA".equals(text)
-                || "IMPORTAR MODPACK".equals(text);
+        // Para PLAY y LAUNCH: refleja estado gameRunning
+        boolean isPlayBtn = "PLAY".equals(text) || "LAUNCH MINECRAFT".equals(text);
+        boolean isStrongCta = "PLAY".equals(text) || "GUARDAR CAMBIOS".equals(text) || "CREAR PERFIL".equals(text);
         JButton btn = new JButton(text) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                boolean modeActive = Boolean.TRUE.equals(getClientProperty("modeActive"));
                 Color eff = (isPlayBtn && gameRunning) ? C_GREEN : accent;
                 int r = eff.getRed(), gn = eff.getGreen(), b = eff.getBlue();
                 Color base = getModel().isPressed()
@@ -526,12 +520,12 @@ public final class LauncherFrame extends JFrame {
                         : getModel().isRollover()
                                 ? new Color(Math.min(255,r/3), Math.min(255,gn/3), Math.min(255,b/3))
                                 : new Color(r/7, gn/7, b/7);
-                int radius = (isStrongCta || modeActive) ? 10 : 8;
-                if (isStrongCta || modeActive) {
+                int radius = isStrongCta ? 10 : 8;
+                if (isStrongCta) {
                     GradientPaint gp = new GradientPaint(0, 0,
-                            new Color(Math.max(0, r / 7), Math.max(0, gn / 7), Math.max(0, b / 7)),
+                            new Color(Math.max(0, r / 8), Math.max(0, gn / 8), Math.max(0, b / 8)),
                             getWidth(), getHeight(),
-                            new Color(Math.max(0, r / 3), Math.max(0, gn / 3), Math.max(0, b / 3)));
+                            new Color(Math.max(0, r / 4), Math.max(0, gn / 4), Math.max(0, b / 4)));
                     g2.setPaint(gp);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
                 } else {
@@ -543,14 +537,9 @@ public final class LauncherFrame extends JFrame {
                 g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,radius + 2,radius + 2);
                 g2.setColor(eff); g2.setStroke(new BasicStroke(2f));
                 g2.drawRoundRect(1,1,getWidth()-3,getHeight()-3,radius,radius);
-                if (modeActive) {
-                    g2.setColor(new Color(255, 255, 255, 45));
-                    g2.setStroke(new BasicStroke(1.5f));
-                    g2.drawRoundRect(3, 3, getWidth() - 7, getHeight() - 7, radius - 2, radius - 2);
-                }
                 // Texto dinámico
                 String displayText = (isPlayBtn && gameRunning) ? "RUNNING" : getText();
-                g2.setColor(modeActive ? C_CYAN : C_TEXT); g2.setFont(getFont()); FontMetrics fm = g2.getFontMetrics();
+                g2.setColor(C_TEXT); g2.setFont(getFont()); FontMetrics fm = g2.getFontMetrics();
                 g2.drawString(displayText, (getWidth()-fm.stringWidth(displayText))/2,
                         (getHeight()+fm.getAscent()-fm.getDescent())/2);
                 g2.dispose();
@@ -605,7 +594,6 @@ public final class LauncherFrame extends JFrame {
                 if (!profiles.isEmpty()) {
                     profilesList.setSelectedIndex(0);
                     profilesEditorList.setSelectedIndex(0);
-                    updateInstancePathLabels(profiles.get(0));
                 } else {
                     startCreateProfileMode();
                 }
@@ -679,6 +667,78 @@ public final class LauncherFrame extends JFrame {
         });
     }
 
+    private void deleteSelectedProfile() {
+        MinecraftProfile selected = profilesEditorList.getSelectedValue();
+        if (selected == null) {
+            selected = profilesList.getSelectedValue();
+        }
+        if (selected == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Selecciona un perfil para eliminar.",
+                    "Eliminar instancia",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "Se eliminara el perfil '" + selected.displayName() + "' y su instancia completa.\nEsta accion no se puede deshacer.",
+                "Confirmar eliminacion",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+        );
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        String profileId = selected.id();
+        runAsync(() -> {
+            apiClient.deleteProfile(profileId);
+            SwingUtilities.invokeLater(() -> {
+                appendOutput("Perfil e instancia eliminados: " + profileId);
+                refreshProfiles();
+                contentCards.show(contentStack, "HOME");
+            });
+        });
+    }
+
+    private void installDeleteContextMenu(JList<MinecraftProfile> list) {
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem deleteItem = new JMenuItem("Eliminar instancia");
+        deleteItem.addActionListener(e -> deleteSelectedProfile());
+        menu.add(deleteItem);
+
+        MouseAdapter popupListener = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
+            private void maybeShowPopup(MouseEvent e) {
+                if (!e.isPopupTrigger()) {
+                    return;
+                }
+                int index = list.locationToIndex(e.getPoint());
+                if (index < 0) {
+                    return;
+                }
+                Rectangle cellBounds = list.getCellBounds(index, index);
+                if (cellBounds == null || !cellBounds.contains(e.getPoint())) {
+                    return;
+                }
+                list.setSelectedIndex(index);
+                menu.show(list, e.getX(), e.getY());
+            }
+        };
+
+        list.addMouseListener(popupListener);
+    }
+
     private JPanel buildModpackPickerField() {
         JPanel row = new JPanel(new BorderLayout(6, 0));
         row.setOpaque(false);
@@ -694,28 +754,11 @@ public final class LauncherFrame extends JFrame {
         return row;
     }
 
-    private JComponent buildProfileModeSwitcher() {
-        JPanel row = new JPanel(new GridLayout(1, 2, 6, 0));
-        row.setOpaque(false);
-        manualModeBtn = buildNeonBtn("Instancia", C_CYAN, 110, 26);
-        modpackModeBtn = buildNeonBtn("Modpack", C_MAGENTA, 110, 26);
-        manualModeBtn.addActionListener(e -> setProfileMode(false));
-        modpackModeBtn.addActionListener(e -> setProfileMode(true));
-        row.add(manualModeBtn);
-        row.add(modpackModeBtn);
-        return row;
-    }
-
-    private void setProfileMode(boolean modpackMode) {
-        this.modpackImportMode = modpackMode;
-        applyProfileModeUi();
-    }
-
     private void chooseModpackFile() {
         ModpackFileChooser chooser = new ModpackFileChooser(this);
         File selected = chooser.showDialog();
         if (selected != null) {
-            setProfileMode(true);
+            profileModeField.setSelectedItem("IMPORTAR MODPACK");
             modpackPathField.setText(selected.getAbsolutePath());
         }
     }
@@ -725,7 +768,7 @@ public final class LauncherFrame extends JFrame {
         idField.setText(p.id());
         idField.setEditable(false);
         nameField.setText(p.displayName());
-        setProfileMode(p.hasModpack());
+        profileModeField.setSelectedItem(inferProfileMode(p));
         versionField.setSelectedItem(p.gameVersion());
         loaderTypeField.setSelectedItem(p.loaderType());
         loaderVersionField.setEditable(true);
@@ -744,7 +787,7 @@ public final class LauncherFrame extends JFrame {
         idField.setEditable(true);
         idField.setText("");
         nameField.setText("");
-        setProfileMode(false);
+        profileModeField.setSelectedItem("INSTANCIA MANUAL");
         versionField.setSelectedItem("1.20.1");
         loaderTypeField.setSelectedItem("FORGE");
         loaderVersionField.setSelectedItem("");
@@ -753,34 +796,7 @@ public final class LauncherFrame extends JFrame {
         modpackPathField.setText("");
         refreshLoaderSuggestions();
         applyProfileModeUi();
-        setInstancePathText("Instancia: (se crea al guardar el perfil)", "");
         if (saveBtn != null) { saveBtn.setText("CREAR INSTANCIA"); saveBtn.repaint(); }
-    }
-
-    private void updateInstancePathLabels(MinecraftProfile profile) {
-        if (profile == null) {
-            setInstancePathText("Instancia: -", "");
-            return;
-        }
-        runAsync(() -> {
-            String path;
-            try {
-                path = apiClient.getProfileInstancePath(profile.id());
-            } catch (Exception ex) {
-                path = "(no disponible)";
-            }
-            String finalPath = path;
-            SwingUtilities.invokeLater(() -> setInstancePathText("Instancia: " + finalPath, finalPath));
-        });
-    }
-
-    private void setInstancePathText(String text, String tooltipPath) {
-        instancePathHomeLbl.setText(text);
-        instancePathHomeLbl.setToolTipText(tooltipPath == null || tooltipPath.isBlank() ? null : tooltipPath);
-        instancePathFormLbl.setText(text.replaceFirst("^Instancia:\\s*", ""));
-        instancePathFormLbl.setToolTipText(tooltipPath == null || tooltipPath.isBlank() ? null : tooltipPath);
-        instancePathFormLbl.setForeground(C_DIM);
-        instancePathFormLbl.setFont(new Font("Dialog", Font.PLAIN, 10));
     }
 
     private void applyProfileModeUi() {
@@ -803,16 +819,6 @@ public final class LauncherFrame extends JFrame {
         applyFieldStyle(modpackCompatField, !manualMode);
         applyFieldStyle(jvmArgsField, true);
         applyFieldStyle(gameArgsField, true);
-        if (manualModeBtn != null && modpackModeBtn != null) {
-            manualModeBtn.putClientProperty("modeActive", manualMode);
-            modpackModeBtn.putClientProperty("modeActive", !manualMode);
-            manualModeBtn.setText((manualMode ? "● " : "○ ") + "Instancia");
-            modpackModeBtn.setText((manualMode ? "○ " : "● ") + "Modpack");
-            manualModeBtn.setEnabled(true);
-            modpackModeBtn.setEnabled(true);
-            manualModeBtn.repaint();
-            modpackModeBtn.repaint();
-        }
 
         if (saveBtn != null && editingProfileId == null) {
             saveBtn.setText(manualMode ? "CREAR INSTANCIA" : "IMPORTAR MODPACK");
@@ -821,7 +827,12 @@ public final class LauncherFrame extends JFrame {
     }
 
     private boolean isModpackImportMode() {
-        return modpackImportMode;
+        Object selected = profileModeField.getSelectedItem();
+        return selected != null && "IMPORTAR MODPACK".equalsIgnoreCase(selected.toString());
+    }
+
+    private String inferProfileMode(MinecraftProfile profile) {
+        return profile != null && profile.hasModpack() ? "IMPORTAR MODPACK" : "INSTANCIA MANUAL";
     }
 
     private void applyFieldStyle(JComponent component, boolean enabled) {
@@ -965,7 +976,8 @@ public final class LauncherFrame extends JFrame {
                 appendOutput(">>> Minecraft lanzado! ID=" + launchId);
                 appendOutput("--------------------------------------------------");
                 // Repintar botones para mostrar "RUNNING"
-                repaintPlayButtons();
+                if (launchBtn != null) launchBtn.repaint();
+                if (playBtn   != null) playBtn.repaint();
                 // Iniciar polling de output
                 startOutputPolling(launchId);
             });
@@ -1044,7 +1056,8 @@ public final class LauncherFrame extends JFrame {
                         appendOutput("=== Minecraft ha terminado ===");
                         updateStatus("Listo", 0);
                         setLaunchEnabled(true);
-                        repaintPlayButtons();
+                        if (launchBtn != null) launchBtn.repaint();
+                        if (playBtn   != null) playBtn.repaint();
                     });
                 }
             } catch (Exception ignored) {}
@@ -1058,13 +1071,8 @@ public final class LauncherFrame extends JFrame {
         }
     }
     private void setLaunchEnabled(boolean enabled) {
+        if (launchBtn != null) launchBtn.setEnabled(enabled);
         if (playBtn   != null) playBtn.setEnabled(enabled);
-        if (profilesPlayBtn != null) profilesPlayBtn.setEnabled(enabled);
-    }
-
-    private void repaintPlayButtons() {
-        if (playBtn != null) playBtn.repaint();
-        if (profilesPlayBtn != null) profilesPlayBtn.repaint();
     }
     private void updateStatus(String text, int prog) {
         statusLbl.setText(text);

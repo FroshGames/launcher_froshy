@@ -48,6 +48,10 @@ public final class InternalApiClient {
         return send("profiles/" + existingId, "PUT", profile, new TypeReference<>() {});
     }
 
+    public void deleteProfile(String profileId) {
+        send("profiles/" + profileId, "DELETE", null, new TypeReference<Map<String, Object>>() {});
+    }
+
     public String getProfileInstancePath(String profileId) {
         Map<String, Object> response = send("profiles/" + profileId + "/instance-path", "GET", null, new TypeReference<>() {});
         Object instancePath = response.get("instancePath");
@@ -131,6 +135,9 @@ public final class InternalApiClient {
 
         if ("GET".equalsIgnoreCase(method)) {
             return builder.GET().build();
+        }
+        if ("DELETE".equalsIgnoreCase(method) && body == null) {
+            return builder.DELETE().build();
         }
 
         byte[] payload = objectMapper.writeValueAsBytes(body);

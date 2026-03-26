@@ -284,7 +284,6 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             clientJar = versionDir.resolve(version + ".jar");
         }
         classpath.add(clientJar);  // client JAR al final
-        Path clientJarFinal = clientJar;
 
         // ── Variables de sustitución ─────────────────────────────────────
         String mainClass     = meta.path("mainClass").asText();
@@ -293,12 +292,7 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         Path   librariesDir  = gameDir.resolve("libraries");
         Path   nativesDir    = versionDir.resolve("natives");
 
-        boolean bootstrapLaunch = "cpw.mods.bootstraplauncher.BootstrapLauncher".equals(mainClass);
-        List<Path> runtimeClasspath = bootstrapLaunch
-                ? classpath.stream().filter(p -> !p.equals(clientJarFinal)).toList()
-                : classpath;
-
-        String cpStr = runtimeClasspath.stream()
+        String cpStr = classpath.stream()
                 .map(p -> p.toAbsolutePath().toString())
                 .collect(java.util.stream.Collectors.joining(File.pathSeparator));
 
@@ -352,7 +346,7 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             }
         }
 
-        return new VersionInstallation(runtimeClasspath, mainClass, jvmArgs, gameArgs, nativesDir);
+        return new VersionInstallation(classpath, mainClass, jvmArgs, gameArgs, nativesDir);
     }
 
     private ResolvedVersionData resolveVersionData(String version, Path gameDir, Set<String> visiting)

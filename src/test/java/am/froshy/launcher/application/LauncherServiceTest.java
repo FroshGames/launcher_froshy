@@ -211,6 +211,43 @@ class LauncherServiceTest {
     }
 
     @Test
+    void shouldDeleteProfileAndInstanceDirectory() throws IOException {
+        LauncherConfig config = new LauncherConfig(
+                tempDir,
+                tempDir.resolve("profiles.json"),
+                tempDir.resolve("game"),
+                7878,
+                "1.0-SNAPSHOT",
+                ""
+        );
+        LauncherService service = new LauncherService(
+                config,
+                new ProfileStore(config.profilesFile(), new ObjectMapper())
+        );
+
+        try {
+            MinecraftProfile profile = new MinecraftProfile(
+                    "to-delete", "Eliminar", "java", "1.20.1",
+                    List.of("-Xmx2G"), List.of("--username", "Alex"),
+                    "VANILLA", "", ""
+            );
+            service.createProfile(profile);
+
+            Path instanceDir = Path.of(service.getProfileInstancePath("to-delete"));
+            Files.createDirectories(instanceDir.resolve("mods"));
+            Files.writeString(instanceDir.resolve("mods").resolve("keep.txt"), "x");
+
+            MinecraftProfile deleted = service.deleteProfile("to-delete");
+
+            assertEquals("to-delete", deleted.id());
+            assertEquals(0, service.listProfiles().size());
+            assertTrue(Files.notExists(instanceDir));
+        } finally {
+            service.shutdown();
+        }
+    }
+
+    @Test
     void shouldAcceptCurseForgeModpackWhenCompatibilityIsBoth() throws IOException {
         LauncherConfig config = new LauncherConfig(
                 tempDir,

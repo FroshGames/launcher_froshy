@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +48,7 @@ public final class LauncherService {
 
     // Procesos de juego activos
     private final Map<String, Process>       activeProcesses = new ConcurrentHashMap<>();
+    private final Map<String, String>        activeProcessProfiles = new ConcurrentHashMap<>();
     private final Map<String, List<String>>  processOutputs  = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
@@ -125,6 +127,22 @@ public final class LauncherService {
         return updated;
     }
 
+    public MinecraftProfile deleteProfile(String profileId) {
+        if (profileId == null || profileId.isBlank()) {
+            throw new IllegalArgumentException("profileId es obligatorio");
+        }
+
+        MinecraftProfile removed = profiles.remove(profileId);
+        if (removed == null) {
+            throw new IllegalArgumentException("Perfil no encontrado: " + profileId);
+        }
+
+        stopActiveProcessesForProfile(profileId);
+        profileStore.save(profiles.values());
+        deleteProfileInstanceDirectory(removed);
+        return removed;
+    }
+
     // ── Lanzamiento ───────────────────────────────────────────────────────
 
     public LaunchResult launch(LaunchRequest request) {
@@ -183,6 +201,7 @@ public final class LauncherService {
 
             Process process = pb.start();
             activeProcesses.put(launchId, process);
+            activeProcessProfiles.put(launchId, profile.id());
 
             // Hilo lector de output
             startOutputReader(launchId, process);
@@ -276,6 +295,7 @@ public final class LauncherService {
             } catch (IOException ignored) {}
             // Proceso terminado
             activeProcesses.remove(launchId);
+            activeProcessProfiles.remove(launchId);
         }, "game-reader-" + launchId.substring(0, 8));
         t.setDaemon(true);
         t.start();
@@ -610,6 +630,52 @@ public final class LauncherService {
             return instanceDir;
         } catch (IOException ex) {
             throw new IllegalStateException("No se pudo preparar la instancia del perfil " + profile.id(), ex);
+        }
+    }
+
+    private void deleteProfileInstanceDirectory(MinecraftProfile profile) {
+        Path instanceDir = profileGameDirectory(profile);
+        if (!Files.exists(instanceDir)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(instanceDir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ex) {
+                    throw new IllegalStateException("No se pudo eliminar la instancia del perfil " + profile.id(), ex);
+                }
+            });
+        } catch (IOException ex) {
+            throw new IllegalStateException("No se pudo eliminar la instancia del perfil " + profile.id(), ex);
+        }
+    }
+
+    private void stopActiveProcessesForProfile(String profileId) {
+        activeProcessProfiles.entrySet().stream()
+                .filter(entry -> profileId.equals(entry.getValue()))
+                .map(Map.Entry::getKey)
+                .forEach(this::stopProcessByLaunchId);
+    }
+
+    private void stopProcessByLaunchId(String launchId) {
+        Process process = activeProcesses.get(launchId);
+        if (process == null) {
+            activeProcessProfiles.remove(launchId);
+            return;
+        }
+
+        try {
+            process.destroy();
+            if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                process.waitFor(2, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        } finally {
+            activeProcesses.remove(launchId);
+            activeProcessProfiles.remove(launchId);
         }
     }
 
