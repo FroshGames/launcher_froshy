@@ -73,20 +73,8 @@ public final class InternalApiServer {
     private void handleProfiles(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String method = exchange.getRequestMethod();
-        String profilePrefix = "/internal/v1/profiles/";
-
         if ("GET".equalsIgnoreCase(method) && "/internal/v1/profiles".equals(path)) {
             sendJson(exchange, 200, launcherService.listProfiles());
-            return;
-        }
-        if ("GET".equalsIgnoreCase(method)
-                && path.startsWith(profilePrefix)
-                && path.endsWith("/instance-path")) {
-            String profileId = path.substring(profilePrefix.length(), path.length() - "/instance-path".length());
-            sendJson(exchange, 200, Map.of(
-                    "profileId", profileId,
-                    "instancePath", launcherService.getProfileInstancePath(profileId)
-            ));
             return;
         }
         if ("POST".equalsIgnoreCase(method) && "/internal/v1/profiles".equals(path)) {
@@ -96,25 +84,15 @@ public final class InternalApiServer {
             return;
         }
 
-        if ("PUT".equalsIgnoreCase(method) && path.startsWith(profilePrefix) && !path.endsWith("/instance-path")) {
-            String existingId = path.substring(profilePrefix.length());
+        if ("PUT".equalsIgnoreCase(method) && path.startsWith("/internal/v1/profiles/")) {
+            String existingId = path.substring("/internal/v1/profiles/".length());
             MinecraftProfile profile = readBody(exchange, MinecraftProfile.class);
             MinecraftProfile updated = launcherService.updateProfile(existingId, profile);
             sendJson(exchange, 200, updated);
             return;
         }
 
-        if ("DELETE".equalsIgnoreCase(method) && path.startsWith(profilePrefix) && !path.endsWith("/instance-path")) {
-            String profileId = path.substring(profilePrefix.length());
-            MinecraftProfile deleted = launcherService.deleteProfile(profileId);
-            sendJson(exchange, 200, Map.of(
-                    "deletedProfileId", deleted.id(),
-                    "instanceDeleted", true
-            ));
-            return;
-        }
-
-        sendMethodNotAllowed(exchange, List.of("GET", "POST", "PUT", "DELETE"));
+        sendMethodNotAllowed(exchange, List.of("GET", "POST", "PUT"));
     }
 
     private void handleLaunch(HttpExchange exchange) throws IOException {
