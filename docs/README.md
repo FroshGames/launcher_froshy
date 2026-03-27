@@ -1,4 +1,4 @@
-# Froshy Launcher - Documentación Completa
+# Launcher_Mialu - Documentación Completa
 
 ## 📋 Índice
 
@@ -17,7 +17,7 @@
 
 ## Visión General
 
-**Froshy Launcher** es un launcher de Minecraft desarrollado en Java con las siguientes características:
+**Launcher_Mialu** es un launcher de Minecraft desarrollado en Java con las siguientes características:
 
 - **API HTTP interna** embebida que expone funcionalidades del launcher
 - **Interfaz gráfica Swing** conectada a la API interna
@@ -219,7 +219,7 @@ java -cp target/classes am.froshy.launcher.LauncherApplication
 
 Sale a consola:
 ```
-Launcher Froshy iniciado. API interna en puerto 7878
+Launcher_Mialu iniciado. API interna en puerto 7878
 Endpoints: /internal/v1/health, /internal/v1/profiles, /internal/v1/launch, /internal/v1/downloads
 ```
 
@@ -813,7 +813,7 @@ private void pollDownload(String downloadId) {
 
 Por ahora este es un proyecto de demostración. Para reportar bugs o contribuir, abre un issue o pull request.
 
-**Licencia**: MIT (o la que elijas)
+**Licencia**: Propietaria (`Launcher_Mialu`). Ver `LICENSE.md` y `LICENSE.es.md`.
 
 ---
 

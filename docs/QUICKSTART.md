@@ -1,4 +1,4 @@
-# Quick Start & Troubleshooting - Froshy Launcher
+# Quick Start & Troubleshooting - Launcher_Mialu
 
 ## ⚡ Instalación Rápida
 
@@ -117,7 +117,7 @@ java -cp target/classes am.froshy.launcher.LauncherApplication
 
 Solo inicia el servidor HTTP:
 ```
-Launcher Froshy iniciado. API interna en puerto 7878
+Launcher_Mialu iniciado. API interna en puerto 7878
 Endpoints: /internal/v1/health, /internal/v1/profiles, /internal/v1/launch, /internal/v1/downloads
 ```
 
@@ -335,7 +335,7 @@ curl -X POST http://localhost:7878/internal/v1/profiles \
 ### Con Postman
 
 1. Descargar: https://www.postman.com/downloads/
-2. Crear colección "Froshy Launcher"
+2. Crear colección "Launcher_Mialu"
 3. Importar requests de [docs/API_REFERENCE.md](API_REFERENCE.md)
 4. Ejecutar requests
 

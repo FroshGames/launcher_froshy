@@ -259,7 +259,10 @@ Las contribuciones son bienvenidas. Por favor:
 
 ## 📄 Licencia
 
-Este proyecto está bajo la Licencia MIT. Ver `LICENSE` para más detalles.
+Este proyecto está bajo una licencia propietaria de `Launcher_Mialu`.
+
+- Versión principal en inglés: `LICENSE.md`
+- Versión informativa en español: `LICENSE.es.md`
 
 ## 💬 Soporte
 

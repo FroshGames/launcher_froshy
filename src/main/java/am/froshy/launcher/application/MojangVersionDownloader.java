@@ -24,9 +24,10 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionService;
@@ -267,23 +268,27 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         JsonNode meta = resolved.meta();
         Path versionDir = gameDir.resolve("versions").resolve(version);
 
-        // ── Classpath: librerías + client JAR ────────────────────────────
-        List<Path> classpath = new ArrayList<>();
+        // ── Classpath: librerías + client JAR cuando corresponda ─────────
+        Set<Path> classpath = new LinkedHashSet<>();
         for (JsonNode lib : meta.path("libraries")) {
             if (!evaluateRules(lib.path("rules"))) continue;
             JsonNode artifact = lib.path("downloads").path("artifact");
             if (!artifact.isMissingNode()) {
                 Path libFile = gameDir.resolve("libraries")
                         .resolve(artifact.path("path").asText());
-                if (Files.exists(libFile)) classpath.add(libFile);
+                if (Files.exists(libFile)) classpath.add(libFile.toAbsolutePath().normalize());
             }
         }
-        String clientJarVersion = resolved.clientJarVersion();
-        Path clientJar = gameDir.resolve("versions").resolve(clientJarVersion).resolve(clientJarVersion + ".jar");
-        if (!Files.exists(clientJar)) {
-            clientJar = versionDir.resolve(version + ".jar");
+        if (shouldIncludeClientJar(meta, gameDir)) {
+            String clientJarVersion = resolved.clientJarVersion();
+            Path clientJar = gameDir.resolve("versions").resolve(clientJarVersion).resolve(clientJarVersion + ".jar");
+            if (!Files.exists(clientJar)) {
+                clientJar = versionDir.resolve(version + ".jar");
+            }
+            if (Files.exists(clientJar)) {
+                classpath.add(clientJar.toAbsolutePath().normalize());
+            }
         }
-        classpath.add(clientJar);  // client JAR al final
 
         // ── Variables de sustitución ─────────────────────────────────────
         String mainClass     = meta.path("mainClass").asText();
@@ -292,7 +297,9 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
         Path   librariesDir  = gameDir.resolve("libraries");
         Path   nativesDir    = versionDir.resolve("natives");
 
-        String cpStr = classpath.stream()
+        List<Path> classpathEntries = new ArrayList<>(classpath);
+
+        String cpStr = classpathEntries.stream()
                 .map(p -> p.toAbsolutePath().toString())
                 .collect(java.util.stream.Collectors.joining(File.pathSeparator));
 
@@ -346,7 +353,38 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
             }
         }
 
-        return new VersionInstallation(classpath, mainClass, jvmArgs, gameArgs, nativesDir);
+        return new VersionInstallation(classpathEntries, mainClass, jvmArgs, gameArgs, nativesDir);
+    }
+
+    private boolean shouldIncludeClientJar(JsonNode meta, Path gameDir) {
+        return !usesLibraryManagedMinecraftClient(meta, gameDir);
+    }
+
+    private boolean usesLibraryManagedMinecraftClient(JsonNode meta, Path gameDir) {
+        if (!"cpw.mods.bootstraplauncher.BootstrapLauncher".equals(meta.path("mainClass").asText(""))) {
+            return false;
+        }
+
+        JsonNode jvmArgs = meta.path("arguments").path("jvm");
+        boolean forgeLikeBootstrap = jvmArgs.isArray() && processArgNodes(jvmArgs, Map.of()).stream()
+                .anyMatch(arg -> arg.startsWith("-DignoreList=") && arg.contains("client-extra"));
+        if (!forgeLikeBootstrap) {
+            return false;
+        }
+
+        Path minecraftClientLibs = gameDir.resolve("libraries").resolve("net").resolve("minecraft").resolve("client");
+        if (!Files.isDirectory(minecraftClientLibs)) {
+            return false;
+        }
+
+        try (java.util.stream.Stream<Path> walk = Files.walk(minecraftClientLibs, 3)) {
+            return walk
+                    .filter(Files::isRegularFile)
+                    .map(path -> path.getFileName().toString())
+                    .anyMatch(name -> name.endsWith("-srg.jar") || name.endsWith("-slim.jar") || name.endsWith("-extra.jar"));
+        } catch (IOException ex) {
+            return false;
+        }
     }
 
     private ResolvedVersionData resolveVersionData(String version, Path gameDir, Set<String> visiting)
@@ -449,6 +487,7 @@ public final class MojangVersionDownloader implements MinecraftVersionDownloader
     }
 
     private record ResolvedVersionData(JsonNode meta, String clientJarVersion) {}
+
 
     // ═══════════════════════════════════════════════════════════════════════
     //  Helpers de argumentos

@@ -1,6 +1,6 @@
-# 📖 Índice de Documentación - Froshy Launcher
+# 📖 Índice de Documentación - Launcher_Mialu
 
-Documentación completa y detallada del proyecto **Froshy Launcher**.
+Documentación completa y detallada del proyecto **Launcher_Mialu**.
 
 ---
 

@@ -1,8 +1,8 @@
-# 🏗️ Arquitectura del Froshy Launcher
+# 🏗️ Arquitectura de Launcher_Mialu
 
 ## Descripción General
 
-El Froshy Launcher es una aplicación de escritorio construida con **arquitectura hexagonal** (puertos y adaptadores) que proporciona una interfaz moderna para gestionar y ejecutar instancias de Minecraft.
+Launcher_Mialu es una aplicación de escritorio construida con **arquitectura hexagonal** (puertos y adaptadores) que proporciona una interfaz moderna para gestionar y ejecutar instancias de Minecraft.
 
 ## 📐 Diagrama de Capas
 

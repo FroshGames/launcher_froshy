@@ -1,10 +1,10 @@
-# 🎮 Froshy Launcher
+# 🎮 Launcher_Mialu
 
 Un launcher moderno, rápido y eficiente para Minecraft construido con Java 17 y arquitectura hexagonal.
 
 ![Java](https://img.shields.io/badge/Java-17%2B-ED8B00?style=flat-square&logo=java)
 ![Maven](https://img.shields.io/badge/Maven-3.8%2B-C71A36?style=flat-square&logo=apache-maven)
-![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+![License](https://img.shields.io/badge/License-Proprietary-red?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen?style=flat-square)
 
 ## ✨ Características
@@ -257,7 +257,10 @@ JVM_MEMORY=-Xmx4G -Xms1G
 
 ## 📄 Licencia
 
-Este proyecto está bajo la Licencia MIT. Ver [LICENSE](LICENSE) para detalles.
+Este proyecto está bajo una licencia propietaria de `Launcher_Mialu`.
+
+- Versión principal en inglés: [LICENSE.md](LICENSE.md)
+- Versión informativa en español: [LICENSE.es.md](LICENSE.es.md)
 
 ## 📞 Soporte
 
