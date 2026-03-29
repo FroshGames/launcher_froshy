@@ -17,7 +17,7 @@ Este launcher tiene **7 documentos markdown** que cubren todo, desde instalació
 ```
 1. README.md (este repo, 2 min)
 2. docs/QUICKSTART.md (8 min, sección "Instalación Rápida")
-3. Ejecuta: mvn package && java -jar target/launcher-1.0-SNAPSHOT.jar
+3. Ejecuta: mvn package && java -jar target/launcher_mialu.jar
 ✅ Disfruta de la UI
 ```
 
@@ -222,7 +222,7 @@ Si algo sigue sin estar claro, abre un issue. Se agregará a docs.
 
 ### En GitHub
 ```
-1. Abre: github.com/usuario/launcher_froshy
+1. Abre: github.com/usuario/launcher_mialu
 2. Navega: docs/ carpeta
 3. Haz click en archivo .md
 4. GitHub renderiza automáticamente
@@ -237,7 +237,7 @@ Si algo sigue sin estar claro, abre un issue. Se agregará a docs.
 
 ### Localmente
 ```
-1. git clone https://github.com/usuario/launcher_froshy.git
+1. git clone https://github.com/usuario/launcher_mialu.git
 2. Abre archivos .md en tu editor (VS Code, Sublime, etc.)
 3. Instala extensión markdown para preview
 ```
@@ -384,4 +384,11 @@ Después de leer, deberías ser capaz de:
 
 **Última actualización**: 2026-03-04  
 **¿Listo para empezar?** → Elige tu ruta arriba ⬆️
+
+
+
+
+
+
+
 

@@ -78,13 +78,13 @@ LauncherFrame (UI)
 
 ## 📦 Estructura de Paquetes
 
-### `am.froshy.launcher`
+### `am.froshy.mialu.launcher`
 Paquete raíz con clases de punto de entrada:
 - **LauncherApplication.java** - Aplicación base no-UI
 - **LauncherUiApplication.java** - Punto de entrada con UI
 - **LauncherRuntime.java** - Gestor del runtime
 
-### `am.froshy.launcher.api.internal`
+### `am.froshy.mialu.launcher.api.internal`
 API REST interna:
 - **InternalApiServer.java** - Servidor HTTP (puerto 8080)
 - **InternalApiClient.java** - Cliente HTTP para UI
@@ -104,27 +104,27 @@ GET    /internal/v1/downloads/{downloadId}    - Verificar descarga
 POST   /internal/v1/downloads                 - Iniciar descarga
 ```
 
-### `am.froshy.launcher.application`
+### `am.froshy.mialu.launcher.application`
 Lógica de aplicación:
 - **LauncherService.java** - Servicios de negocio
   - Gestión de perfiles
   - Lanzamiento de procesos
   - Descargas
 
-### `am.froshy.launcher.domain`
+### `am.froshy.mialu.launcher.domain`
 Modelos de dominio (entidades):
 - **MinecraftProfile.java** - Configuración de perfil (record)
 - **LaunchRequest.java** - Solicitud de lanzamiento
 - **LaunchResult.java** - Resultado de lanzamiento
 - **DownloadStatus.java** - Estado de descarga
 
-### `am.froshy.launcher.infrastructure`
+### `am.froshy.mialu.launcher.infrastructure`
 Persistencia y acceso a datos:
 - **ProfileStore.java** - Almacenamiento de perfiles
   - Lee/escribe profiles.json
   - Utiliza Jackson para serialización
 
-### `am.froshy.launcher.config`
+### `am.froshy.mialu.launcher.config`
 Configuración:
 - **LauncherConfig.java** - Variables de configuración
   - Puerto API (8080)
@@ -132,7 +132,7 @@ Configuración:
   - Memoria JVM
   - Timeouts
 
-### `am.froshy.launcher.ui`
+### `am.froshy.mialu.launcher.ui`
 Interfaz gráfica:
 - **LauncherFrame.java** - Ventana principal
   - Panel de Perfiles
@@ -163,7 +163,7 @@ Interfaz gráfica:
 
 ```
 src/test/
-└── java/am/froshy/launcher/
+└── java/am/froshy/mialu/launcher/
     ├── api/internal/
     │   ├── InternalApiServerTest.java
     │   └── InternalApiClientTest.java
@@ -300,4 +300,11 @@ Runtime.getRuntime().addShutdownHook(new Thread(runtime::stop))
 **Versión**: 1.0
 **Última actualización**: Marzo 2026
 **Estándar de arquitectura**: Hexagonal + Clean Architecture
+
+
+
+
+
+
+
 

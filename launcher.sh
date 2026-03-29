@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════
-# Froshy Launcher - Ejecutable Único
+# Launcher_Mialu - Ejecutable Único
 # Java está autocontenido, solo necesitas ejecutar este archivo
 # ═══════════════════════════════════════════════════════════
 
@@ -8,7 +8,7 @@ set -e
 
 # Obtener el directorio del script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-JAR_FILE="$SCRIPT_DIR/target/launcher-1.0-SNAPSHOT.jar"
+JAR_FILE="$SCRIPT_DIR/target/launcher_mialu.jar"
 
 # Intentar encontrar Java (primero local, luego del sistema)
 JAVA_EXE="java"
@@ -30,7 +30,7 @@ JVM_MEMORY="-Xmx2G -Xms512M"
 # Ejecutar el launcher
 echo ""
 echo "╔═══════════════════════════════════════════════════════════╗"
-echo "║          🎮 Froshy Launcher v1.0 - Iniciando 🎮          ║"
+echo "║          🎮 Launcher_Mialu v1.0 - Iniciando 🎮          ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo ""
 

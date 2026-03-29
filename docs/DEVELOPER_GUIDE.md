@@ -1,4 +1,4 @@
-# Guía de Desarrollo - Froshy Launcher
+# Guía de Desarrollo - Launcher_Mialu
 
 ## Setup de Desarrollo
 
@@ -11,7 +11,7 @@
 ### Configuración IntelliJ IDEA
 
 1. **Abrir proyecto**:
-   - File → Open → Selecciona carpeta `launcher_froshy`
+   - File → Open → Selecciona carpeta `launcher_mialu`
    - Espera a que IDE indexe
 
 2. **Configurar SDK**:
@@ -51,7 +51,7 @@ mvn test
 mvn package
 
 # 7. Testing manual
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 # (interactuar con UI)
 
 # 8. Commit
@@ -229,7 +229,7 @@ void shouldDeleteProfile(@TempDir Path tempDir) {
 ```bash
 mvn clean test
 mvn package
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 # Crear, listar, eliminar en UI
 ```
 
@@ -443,11 +443,11 @@ Máximo 120 caracteres (configurable en IDE).
 
 ```java
 // BAD: demasiado largo
-String veryLongCommandLine = "java -Xmx2G -jar minecraft-1.20.1.jar --gameDir ~/.froshy-launcher/game --username Steve";
+String veryLongCommandLine = "java -Xmx2G -jar minecraft-1.20.1.jar --gameDir ~/.mialu-launcher/game --username Steve";
 
 // GOOD: quebrado
 String commandLine = "java -Xmx2G -jar minecraft-1.20.1.jar "
-    + "--gameDir ~/.froshy-launcher/game "
+    + "--gameDir ~/.mialu-launcher/game "
     + "--username Steve";
 ```
 
@@ -505,7 +505,7 @@ git add .
 git commit -m "release: v1.0"
 
 # Tag
-git tag -a v1.0 -m "Froshy Launcher v1.0"
+git tag -a v1.0 -m "Launcher_Mialu v1.0"
 
 # Push
 git push origin main
@@ -543,4 +543,11 @@ En GitHub:
 ---
 
 **Última actualización**: 2026-03-04
+
+
+
+
+
+
+
 

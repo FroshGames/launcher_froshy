@@ -76,3 +76,10 @@ Si después de la fix siguen apareciendo errores de módulos diferentes, puede i
 - Versiones de Forge incompatibles con los mods
 - Conflictos específicos de ciertas combinaciones de mods
 
+
+
+
+
+
+
+

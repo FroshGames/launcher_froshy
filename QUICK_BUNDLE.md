@@ -1,11 +1,11 @@
-# 🎮 FROSHY LAUNCHER - Inicio Rápido con Bundle Único
+# 🎮 LAUNCHER_MIALU - Inicio Rápido con Bundle Único
 
 ## ⚡ La Forma Más Fácil (3 Comandos)
 
 ### Windows - PowerShell
 
 ```powershell
-cd C:\ruta\a\launcher_froshy
+cd C:\ruta\a\launcher_mialu
 mvn clean package -DskipTests
 PowerShell -ExecutionPolicy Bypass -File "create-bundle.ps1"
 ```
@@ -13,7 +13,7 @@ PowerShell -ExecutionPolicy Bypass -File "create-bundle.ps1"
 ### Linux/Mac - Terminal
 
 ```bash
-cd /ruta/a/launcher_froshy
+cd /ruta/a/launcher_mialu
 mvn clean package -DskipTests
 bash create-bundle.sh
 ```
@@ -26,25 +26,25 @@ bash create-bundle.sh
 
 ### Windows
 ```powershell
-.\launcher_froshy.bat
+.\launcher_mialu.bat
 
 # O haz doble clic en:
-# - launcher_froshy.bat
-# - Froshy Launcher.lnk (acceso directo)
+# - launcher_mialu.bat
+# - Launcher_Mialu.lnk (acceso directo)
 ```
 
 ### Linux/Mac
 ```bash
-./launcher_froshy
+./launcher_mialu.sh
 
-# O haz doble clic en launcher_froshy (si tu gestor de archivos lo permite)
+# O haz doble clic en launcher_mialu.sh (si tu gestor de archivos lo permite)
 ```
 
 ---
 
 ## ✨ Qué es este Bundle
 
-El bundle `launcher_froshy` es:
+El bundle `launcher_mialu` es:
 
 ✅ **Un único ejecutable** (con Java incluido)  
 ✅ **Sin dependencias externas** (nada que descargar)  
@@ -92,21 +92,28 @@ Después de seguir los pasos, tienes:
 
 ```
 project/
-├── launcher_froshy.bat                  (ejecutable - Windows)
-├── launcher_froshy.bat.lnk              (acceso directo - Windows)
-├── launcher_froshy                      (ejecutable - Linux/Mac)
-├── launcher_froshy.tar.gz               (comprimido - Linux/Mac)
-├── launcher_froshy-win64.zip            (comprimido - Windows)
+├── launcher_mialu.bat                   (ejecutable - Windows)
+├── Launcher_Mialu.lnk                   (acceso directo - Windows)
+├── launcher_mialu.sh                    (ejecutable - Linux/Mac)
+├── launcher_mialu.tar.gz                (comprimido - Linux/Mac)
+├── launcher_mialu-win64.zip             (comprimido - Windows)
 └── build-bundle/                        (estructura del bundle)
-    ├── launcher_froshy.bat (o sin ext)
+    ├── launcher_mialu.bat (o launcher_mialu en Linux/Mac)
     ├── jdk/                            (Java 17 integrado)
     └── lib/
         └── launcher.jar
 ```
 
-**El usuario solo necesita ejecutar `launcher_froshy`** (sin descargar nada adicional)
+**El usuario solo necesita ejecutar `launcher_mialu`** (o `launcher_mialu.bat` en Windows) sin descargar nada adicional.
 
 ---
 
 **¡Listo para distribución!** 🚀
+
+
+
+
+
+
+
 

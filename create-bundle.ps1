@@ -1,5 +1,5 @@
-# Script para crear un bundle ejecutable de Froshy Launcher con Java integrado (Windows)
-# Esto crea un archivo único "launcher_froshy.exe" que contiene todo
+# Script para crear un bundle ejecutable de Launcher_Mialu con Java integrado (Windows)
+# Esto crea un archivo único "launcher_mialu" que contiene todo
 
 param(
     [string]$BuildDir = ".\build-bundle"
@@ -9,15 +9,15 @@ $ErrorActionPreference = "Stop"
 
 Write-Host ""
 Write-Host "╔═══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║  Creando Bundle Ejecutable: launcher_froshy.exe              ║" -ForegroundColor Cyan
+Write-Host "║  Creando Bundle Ejecutable: launcher_mialu                   ║" -ForegroundColor Cyan
 Write-Host "║  (Java integrado, sin dependencias externas)                 ║" -ForegroundColor Cyan
 Write-Host "╚═══════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
 # Configuración
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$BundleName = "launcher_froshy"
-$JarFile = "$ScriptDir\target\launcher-1.0-SNAPSHOT.jar"
+$BundleName = "launcher_mialu"
+$JarFile = "$ScriptDir\target\launcher_mialu.jar"
 $JdkUrl = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.9%2B9/OpenJDK17U-jdk_x64_windows_hotspot_17.0.9_9.zip"
 $FullBuildDir = Join-Path $ScriptDir $BuildDir
 
@@ -77,7 +77,7 @@ Write-Host "6️⃣  Creando archivo ejecutable..." -ForegroundColor Yellow
 
 # Usar @" con escape para evitar interpolación
 $BatchContent = '@echo off
-REM Froshy Launcher - Ejecutable autocontenido
+REM Launcher_Mialu - Ejecutable autocontenido
 
 setlocal enabledelayedexpansion
 
@@ -133,11 +133,11 @@ Write-Host "✅ Ejecutable principal copiado" -ForegroundColor Green
 Write-Host ""
 Write-Host "📌 Creando acceso directo..." -ForegroundColor Yellow
 $WshShell = New-Object -ComObject WScript.Shell
-$ShortcutPath = "$ScriptDir\Froshy Launcher.lnk"
+$ShortcutPath = "$ScriptDir\Launcher_Mialu.lnk"
 $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = "$FullBuildDir\$BundleName.bat"
 $Shortcut.WorkingDirectory = $FullBuildDir
-$Shortcut.Description = "Froshy Launcher - Minecraft Launcher"
+$Shortcut.Description = "Launcher_Mialu - Minecraft Launcher"
 $Shortcut.IconLocation = "C:\Windows\System32\imageres.dll,178"
 $Shortcut.Save()
 Write-Host "✅ Acceso directo creado" -ForegroundColor Green
@@ -155,13 +155,13 @@ Write-Host ""
 Write-Host "CÓMO USAR:" -ForegroundColor Yellow
 Write-Host "  Opción 1 (recomendado): Descomprime y ejecuta"
 Write-Host "    1. Extrae $BundleName-win64.zip"
-Write-Host "    2. Haz doble clic en launcher_froshy.bat"
+Write-Host "    2. Haz doble clic en launcher_mialu.bat"
 Write-Host ""
 Write-Host "  Opción 2: Ejecuta desde línea de comandos"
-Write-Host "    launcher_froshy.bat"
+Write-Host "    launcher_mialu.bat"
 Write-Host ""
 Write-Host "  Opción 3: Usa el acceso directo"
-Write-Host "    Froshy Launcher.lnk"
+Write-Host "    Launcher_Mialu.lnk"
 Write-Host ""
 Write-Host "════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
 Write-Host ""

@@ -33,7 +33,7 @@ Un launcher moderno, rápido y eficiente para Minecraft construido con Java 17 y
 PowerShell -ExecutionPolicy Bypass -File "scripts\download-jdk.ps1"
 
 # 2. Ejecutar launcher
-launcher.bat
+launcher_mialu.bat
 ```
 
 ### macOS/Linux
@@ -43,7 +43,7 @@ launcher.bat
 bash scripts/download-jdk.sh
 
 # 2. Ejecutar launcher
-bash launcher.sh
+bash launcher_mialu.sh
 ```
 
 ## 📖 Documentación Completa
@@ -57,8 +57,8 @@ bash launcher.sh
 ## 🏗️ Estructura del Proyecto
 
 ```
-launcher_froshy/
-├── src/main/java/am/froshy/launcher/
+launcher_mialu/
+├── src/main/java/am/froshy/mialu/launcher/
 │   ├── LauncherApplication.java              # Aplicación base
 │   ├── LauncherUiApplication.java            # Punto de entrada UI
 │   ├── LauncherRuntime.java                  # Gestor de runtime
@@ -75,8 +75,8 @@ launcher_froshy/
 ├── scripts/
 │   ├── download-jdk.ps1                      # Descarga Java (Windows)
 │   └── download-jdk.sh                       # Descarga Java (Linux/Mac)
-├── launcher.bat                              # Script ejecución (Windows)
-├── launcher.sh                               # Script ejecución (Linux/Mac)
+├── launcher_mialu.bat                              # Script ejecución (Windows)
+├── launcher_mialu.sh                               # Script ejecución (Linux/Mac)
 ├── pom.xml                                   # Configuración Maven
 └── docs/                                     # Documentación completa
 ```
@@ -133,11 +133,11 @@ Ver [Referencia de API](docs/API_REFERENCE.md) para detalles completos.
 ### Compilar
 
 ```bash
-cd launcher_froshy
+cd launcher_mialu
 mvn clean package -DskipTests
 ```
 
-El JAR empaquetado estará en `target/launcher-1.0-SNAPSHOT.jar`
+El JAR empaquetado estará en `target/launcher_mialu.jar`
 
 ### Ejecutar Tests
 
@@ -231,7 +231,7 @@ export LAUNCHER_JAVA_PATH=/ruta/a/java
 
 ### Memoria JVM Personalizada
 
-Edita el archivo de script (launcher.bat o launcher.sh):
+Edita el archivo de script (launcher_mialu.bat o launcher_mialu.sh):
 ```
 # Cambiar -Xmx2G a el valor deseado, ej: -Xmx4G
 JVM_MEMORY=-Xmx4G -Xms1G
@@ -266,7 +266,7 @@ Este proyecto está bajo una licencia propietaria de `Launcher_Mialu`.
 
 - 🐛 Reportar bugs: Abre un issue
 - 💬 Sugerencias: Discusiones en el repositorio
-- 📧 Email: contacto@froshycorp.am
+- 📧 Email: contacto@mialustudio.am
 
 ## 🙏 Agradecimientos
 
@@ -317,7 +317,15 @@ Este proyecto está bajo una licencia propietaria de `Launcher_Mialu`.
 **Versión**: 1.0-SNAPSHOT  
 **Última actualización**: Marzo 2026  
 **Estado**: ✅ Funcional  
-**Mantenedor**: Froshy Corp  
+**Mantenedor**: MialuStudio  
 
 ¡Que disfrutes tu Minecraft! 🎮
+
+
+
+
+
+
+
+
 

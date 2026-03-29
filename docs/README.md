@@ -92,7 +92,7 @@
 ## Estructura del Proyecto
 
 ```
-launcher_froshy/
+launcher_mialu/
 ├── pom.xml                                # Configuracion Maven
 ├── README.md                              # Quickstart
 ├── docs/                                  # (NEW) Documentación detallada
@@ -101,7 +101,7 @@ launcher_froshy/
 │   ├── DEVELOPER_GUIDE.md
 │   └── CHANGELOG.md
 │
-├── src/main/java/am/froshy/launcher/
+├── src/main/java/am/froshy/mialu/launcher/
 │   ├── LauncherApplication.java           # Entrypoint API-only (--headless)
 │   ├── LauncherUiApplication.java         # Entrypoint UI visual (default)
 │   ├── LauncherRuntime.java               # Bootstrap compartido
@@ -128,7 +128,7 @@ launcher_froshy/
 │   └── ui/
 │       └── LauncherFrame.java             # Ventana principal Swing
 │
-└── src/test/java/am/froshy/launcher/
+└── src/test/java/am/froshy/mialu/launcher/
     ├── application/
     │   └── LauncherServiceTest.java       # Tests unitarios del servicio
     └── api/internal/
@@ -151,8 +151,8 @@ launcher_froshy/
 1. **Clonar el repositorio**
 
    ```bash
-   git clone https://github.com/tu-usuario/launcher_froshy.git
-   cd launcher_froshy
+   git clone https://github.com/tu-usuario/launcher_mialu.git
+   cd launcher_mialu
    ```
 
 2. **Compilar el proyecto**
@@ -175,19 +175,19 @@ launcher_froshy/
    mvn package
    ```
 
-   Genera: `target/launcher-1.0-SNAPSHOT.jar`
+   Genera: `target/launcher_mialu.jar`
 
 ### Variables de Entorno
 
 | Variable | Default | Descripción |
 |----------|---------|-------------|
-| `FROSHY_API_PORT` | `7878` | Puerto en el que escucha la API interna |
+| `MIALU_API_PORT` | `7878` | Puerto en el que escucha la API interna |
 
 **Ejemplo**:
 
 ```bash
-export FROSHY_API_PORT=9999
-java -jar target/launcher-1.0-SNAPSHOT.jar
+export MIALU_API_PORT=9999
+java -jar target/launcher_mialu.jar
 ```
 
 ---
@@ -199,14 +199,14 @@ java -jar target/launcher-1.0-SNAPSHOT.jar
 Abre ventana gráfica con interfaz interactiva.
 
 ```bash
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 **O compilando desde fuente**:
 
 ```bash
 mvn compile
-java -cp target/classes am.froshy.launcher.LauncherUiApplication
+java -cp target/classes am.froshy.mialu.launcher.LauncherUiApplication
 ```
 
 ### Modo 2: API-only (headless)
@@ -214,7 +214,7 @@ java -cp target/classes am.froshy.launcher.LauncherUiApplication
 Solo arranca servidor HTTP sin UI.
 
 ```bash
-java -cp target/classes am.froshy.launcher.LauncherApplication
+java -cp target/classes am.froshy.mialu.launcher.LauncherApplication
 ```
 
 Sale a consola:
@@ -267,7 +267,7 @@ La ventana se divide en 2 paneles principales:
 http://localhost:7878/internal/v1
 ```
 
-(El puerto puede variar según `FROSHY_API_PORT`)
+(El puerto puede variar según `MIALU_API_PORT`)
 
 ### Endpoints
 
@@ -364,7 +364,7 @@ Content-Type: application/json
 {
   "launchId": "550e8400-e29b-41d4-a716-446655440000",
   "profileId": "default",
-  "commandLine": "java -Xmx2G -jar minecraft-1.20.1.jar --gameDir C:\\Users\\User\\.froshy-launcher\\game --username Steve",
+  "commandLine": "java -Xmx2G -jar minecraft-1.20.1.jar --gameDir C:\\Users\\User\\.mialu-launcher\\game --username Steve",
   "startedAt": "2026-03-04T04:30:45Z",
   "status": "STARTED"
 }
@@ -419,7 +419,7 @@ Estados posibles: `QUEUED`, `IN_PROGRESS`, `DONE`
 
 #### 1. Domain (Modelos Puros)
 
-Ubicación: `src/main/java/am/froshy/launcher/domain/`
+Ubicación: `src/main/java/am/froshy/mialu/launcher/domain/`
 
 Son **records** inmutables que representan conceptos del negocio:
 
@@ -442,7 +442,7 @@ public record MinecraftProfile(
 
 #### 2. Application (Lógica de Negocio)
 
-Ubicación: `src/main/java/am/froshy/launcher/application/LauncherService.java`
+Ubicación: `src/main/java/am/froshy/mialu/launcher/application/LauncherService.java`
 
 Orquesta perfiles, descargas y lanzamientos:
 
@@ -461,7 +461,7 @@ public class LauncherService {
 
 #### 3. Infrastructure (Persistencia)
 
-Ubicación: `src/main/java/am/froshy/launcher/infrastructure/ProfileStore.java`
+Ubicación: `src/main/java/am/froshy/mialu/launcher/infrastructure/ProfileStore.java`
 
 Maneja lectura/escritura de perfiles en JSON:
 
@@ -472,7 +472,7 @@ public class ProfileStore {
 }
 ```
 
-Ubicación del archivo: `~/.froshy-launcher/profiles.json`
+Ubicación del archivo: `~/.mialu-launcher/profiles.json`
 
 Formato:
 ```json
@@ -485,7 +485,7 @@ Formato:
 
 #### 4. API Internal (HTTP)
 
-Ubicación: `src/main/java/am/froshy/launcher/api/internal/`
+Ubicación: `src/main/java/am/froshy/mialu/launcher/api/internal/`
 
 **InternalApiServer**: 
 - Sirve endpoints HTTP
@@ -499,7 +499,7 @@ Ubicación: `src/main/java/am/froshy/launcher/api/internal/`
 
 #### 5. UI (Presentación)
 
-Ubicación: `src/main/java/am/froshy/launcher/ui/LauncherFrame.java`
+Ubicación: `src/main/java/am/froshy/mialu/launcher/ui/LauncherFrame.java`
 
 Panel Swing principal con:
 - Listado de perfiles (`JList<MinecraftProfile>`)
@@ -603,9 +603,9 @@ void shouldCreateAndList() {
 
 ```java
 public record LauncherConfig(
-    Path baseDirectory,      // ~/.froshy-launcher
-    Path profilesFile,       // ~/.froshy-launcher/profiles.json
-    Path gameDirectory,      // ~/.froshy-launcher/game
+    Path baseDirectory,      // ~/.mialu-launcher
+    Path profilesFile,       // ~/.mialu-launcher/profiles.json
+    Path gameDirectory,      // ~/.mialu-launcher/game
     int internalApiPort      // 7878 (default)
 )
 ```
@@ -616,8 +616,8 @@ LauncherConfig config = LauncherConfig.fromEnvironment();
 ```
 
 Variables usadas:
-- `user.home`: Para ubicar `~/.froshy-launcher`
-- `FROSHY_API_PORT`: Para overridear puerto API
+- `user.home`: Para ubicar `~/.mialu-launcher`
+- `MIALU_API_PORT`: Para overridear puerto API
 
 ### 2. LauncherRuntime
 
@@ -819,4 +819,11 @@ Por ahora este es un proyecto de demostración. Para reportar bugs o contribuir,
 
 **Última actualización**: 2026-03-04  
 **Versión**: 1.0-SNAPSHOT
+
+
+
+
+
+
+
 

@@ -1,8 +1,8 @@
-# Guía de Arquitectura - Froshy Launcher
+# Guía de Arquitectura - Launcher_Mialu
 
 ## Visión General
 
-Froshy Launcher sigue una arquitectura **limpia y desacoplada** en capas:
+Launcher_Mialu sigue una arquitectura **limpia y desacoplada** en capas:
 
 ```
 ┌────────────────────────────────────────┐
@@ -466,7 +466,7 @@ void shouldCreateProfileAndLaunchThroughApi(@TempDir Path tempDir) {
 ### E2E Manual
 
 1. Compilar: `mvn package`
-2. Ejecutar JAR: `java -jar target/launcher-1.0-SNAPSHOT.jar`
+2. Ejecutar JAR: `java -jar target/launcher_mialu.jar`
 3. Crear perfil en UI
 4. Lanzar perfil
 5. Ver log en output
@@ -557,7 +557,7 @@ No hay logging configurado aún. Opciones:
 IntelliJ IDEA permite debuggear fácilmente:
 
 1. Run → Edit Configurations → Add "Application"
-2. Main class: `am.froshy.launcher.LauncherUiApplication`
+2. Main class: `am.froshy.mialu.launcher.LauncherUiApplication`
 3. Run → Debug (Shift+F9)
 4. Establece breakpoints en código
 5. Interactúa con UI, código se detiene en breakpoints
@@ -565,4 +565,11 @@ IntelliJ IDEA permite debuggear fácilmente:
 ---
 
 **Última actualización**: 2026-03-04
+
+
+
+
+
+
+
 

@@ -1,6 +1,6 @@
 @echo off
 REM ═══════════════════════════════════════════════════════════
-REM Froshy Launcher - Ejecutable Único
+REM Launcher_Mialu - Ejecutable Único
 REM Java está autocontenido, solo necesitas ejecutar este archivo
 REM ═══════════════════════════════════════════════════════════
 
@@ -8,7 +8,7 @@ setlocal enabledelayedexpansion
 
 REM Obtener el directorio del script
 set SCRIPT_DIR=%~dp0
-set JAR_FILE=%SCRIPT_DIR%target\launcher.jar
+set JAR_FILE=%SCRIPT_DIR%target\launcher_mialu.jar
 
 REM Intentar encontrar Java (primero local, luego del sistema)
 set JAVA_EXE=java.exe
@@ -24,7 +24,7 @@ set JVM_MEMORY=-Xmx2G -Xms512M
 REM Ejecutar el launcher
 echo.
 echo ╔═══════════════════════════════════════════════════════════╗
-echo ║          🎮 Froshy Launcher v1.0 - Iniciando 🎮          ║
+echo ║          🎮 Launcher_Mialu v1.0 - Iniciando 🎮          ║
 echo ╚═══════════════════════════════════════════════════════════╝
 echo.
 

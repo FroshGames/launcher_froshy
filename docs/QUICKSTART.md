@@ -12,8 +12,8 @@
 # https://maven.apache.org/download.cgi
 
 # 3. Clonar repositorio
-git clone https://github.com/tu-usuario/launcher_froshy.git
-cd launcher_froshy
+git clone https://github.com/tu-usuario/launcher_mialu.git
+cd launcher_mialu
 
 # 4. Compilar
 mvn clean compile
@@ -25,7 +25,7 @@ mvn test
 mvn package
 
 # 7. Ejecutar
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 ✅ **El JAR ya incluye todas las dependencias (Jackson) automáticamente.**
@@ -41,14 +41,14 @@ brew install openjdk@17
 brew install maven
 
 # 3. Clonar
-git clone https://github.com/tu-usuario/launcher_froshy.git
-cd launcher_froshy
+git clone https://github.com/tu-usuario/launcher_mialu.git
+cd launcher_mialu
 
 # 4-7. Mismo que en Windows
 mvn clean compile
 mvn test
 mvn package
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 ### Linux
@@ -62,12 +62,12 @@ sudo apt-get install openjdk-17-jdk maven
 sudo yum install java-17-openjdk java-17-openjdk-devel maven
 
 # 3-7. Igual que macOS
-git clone https://github.com/tu-usuario/launcher_froshy.git
-cd launcher_froshy
+git clone https://github.com/tu-usuario/launcher_mialu.git
+cd launcher_mialu
 mvn clean compile
 mvn test
 mvn package
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 ---
@@ -102,7 +102,7 @@ git --version
 ### Modo Visual (Recomendado)
 
 ```bash
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 Se abre una ventana con la interfaz gráfica.
@@ -112,7 +112,7 @@ Se abre una ventana con la interfaz gráfica.
 ### Modo API-only (Headless)
 
 ```bash
-java -cp target/classes am.froshy.launcher.LauncherApplication
+java -cp target/classes am.froshy.mialu.launcher.LauncherApplication
 ```
 
 Solo inicia el servidor HTTP:
@@ -125,12 +125,12 @@ Endpoints: /internal/v1/health, /internal/v1/profiles, /internal/v1/launch, /int
 
 ```bash
 # Windows
-set FROSHY_API_PORT=9999
-java -jar target/launcher-1.0-SNAPSHOT.jar
+set MIALU_API_PORT=9999
+java -jar target/launcher_mialu.jar
 
 # macOS/Linux
-export FROSHY_API_PORT=9999
-java -jar target/launcher-1.0-SNAPSHOT.jar
+export MIALU_API_PORT=9999
+java -jar target/launcher_mialu.jar
 ```
 
 ---
@@ -184,8 +184,8 @@ Verificar: `mvn -version`
 **Solución 1**: Cambiar puerto
 
 ```bash
-export FROSHY_API_PORT=8888
-java -jar target/launcher-1.0-SNAPSHOT-with-dependencies.jar
+export MIALU_API_PORT=8888
+java -jar target/launcher_mialu.jar
 ```
 
 **Solución 2**: Matar proceso existente
@@ -230,10 +230,10 @@ Si en IDE IntelliJ:
 # Si tienes headless server, usar VirtualDisplay
 # En WSL2 (Windows Subsystem for Linux):
 export DISPLAY=:0
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 
 # O usar modo API-only
-java -cp target/classes am.froshy.launcher.LauncherApplication
+java -cp target/classes am.froshy.mialu.launcher.LauncherApplication
 ```
 
 ---
@@ -270,33 +270,33 @@ mvn compile
 
 ### Error: "Permission denied" en Linux/macOS
 
-**Causa**: Permisos insuficientes al escribir `~/.froshy-launcher/`.
+**Causa**: Permisos insuficientes al escribir `~/.mialu-launcher/`.
 
 **Solución**:
 
 ```bash
-mkdir -p ~/.froshy-launcher
-chmod 755 ~/.froshy-launcher
-java -jar target/launcher-1.0-SNAPSHOT-with-dependencies.jar
+mkdir -p ~/.mialu-launcher
+chmod 755 ~/.mialu-launcher
+java -jar target/launcher_mialu.jar
 ```
 
 ---
 
 ### Error: "profiles.json está corrupto"
 
-**Causa**: Archivo JSON inválido en `~/.froshy-launcher/profiles.json`.
+**Causa**: Archivo JSON inválido en `~/.mialu-launcher/profiles.json`.
 
 **Solución**:
 
 ```bash
 # Windows
-del %USERPROFILE%\.froshy-launcher\profiles.json
+del %USERPROFILE%\.mialu-launcher\profiles.json
 
 # macOS/Linux
-rm ~/.froshy-launcher/profiles.json
+rm ~/.mialu-launcher/profiles.json
 
 # Reiniciar launcher
-java -jar target/launcher-1.0-SNAPSHOT-with-dependencies.jar
+java -jar target/launcher_mialu.jar
 ```
 
 ---
@@ -411,7 +411,7 @@ Este repositorio es de demostración educativa. Revisar el código antes de ejec
 
 4. **Ver logs del servidor**:
    ```bash
-   java -jar target/launcher-1.0-SNAPSHOT.jar 2>&1 | tee launcher.log
+   java -jar target/launcher_mialu.jar 2>&1 | tee launcher.log
    ```
 
 5. **Reportar issue**: Incluir:
@@ -424,4 +424,11 @@ Este repositorio es de demostración educativa. Revisar el código antes de ejec
 ---
 
 **Última actualización**: 2026-03-04
+
+
+
+
+
+
+
 

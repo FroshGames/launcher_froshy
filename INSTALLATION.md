@@ -1,6 +1,6 @@
-# 🚀 Froshy Launcher - Guía de Instalación
+# 🚀 Launcher_Mialu - Guía de Instalación
 
-Bienvenido a **Froshy Launcher**, un launcher moderno y eficiente para Minecraft construido en Java con una arquitectura profesional.
+Bienvenido a **Launcher_Mialu**, un launcher moderno y eficiente para Minecraft construido en Java con una arquitectura profesional.
 
 ## 📋 Requisitos del Sistema
 
@@ -21,7 +21,7 @@ Bienvenido a **Froshy Launcher**, un launcher moderno y eficiente para Minecraft
 
 2. **Inicia el launcher**:
    ```cmd
-   launcher.bat
+   launcher_mialu.bat
    ```
 
 ### En macOS/Linux
@@ -33,7 +33,7 @@ Bienvenido a **Froshy Launcher**, un launcher moderno y eficiente para Minecraft
 
 2. **Inicia el launcher**:
    ```bash
-   bash launcher.sh
+   bash launcher_mialu.sh
    ```
 
 ## 🎮 Uso del Launcher
@@ -68,9 +68,9 @@ Descarga recursos necesarios para Minecraft:
 ## 🏗️ Estructura del Proyecto
 
 ```
-launcher_froshy/
+launcher_mialu/
 ├── src/
-│   ├── main/java/am/froshy/launcher/
+│   ├── main/java/am/froshy/mialu/launcher/
 │   │   ├── LauncherApplication.java           # Clase principal
 │   │   ├── LauncherUiApplication.java         # Punto de entrada UI
 │   │   ├── LauncherRuntime.java               # Gestor de runtime
@@ -93,8 +93,8 @@ launcher_froshy/
 ├── scripts/
 │   ├── download-jdk.ps1                      # Descarga Java (Windows)
 │   └── download-jdk.sh                       # Descarga Java (Linux/Mac)
-├── launcher.bat                               # Script de ejecución (Windows)
-├── launcher.sh                                # Script de ejecución (Linux/Mac)
+├── launcher_mialu.bat                         # Script oficial de ejecución (Windows)
+├── launcher_mialu.sh                          # Script oficial de ejecución (Linux/Mac)
 ├── pom.xml                                    # Configuración Maven
 └── docs/                                      # Documentación
 
@@ -138,11 +138,11 @@ Interfaz de usuario moderna:
 ## 📊 Flujo de Ejecución
 
 ```
-launcher.bat/sh
+launcher_mialu.bat / launcher_mialu.sh
     ↓
     └─→ Verifica Java local
     └─→ Verifica JAR
-    └─→ Ejecuta: java -Xmx2G -jar launcher-1.0-SNAPSHOT.jar
+    └─→ Ejecuta: java -Xmx2G -jar launcher.jar
         ↓
         LauncherUiApplication.main()
         ↓
@@ -171,13 +171,13 @@ Si deseas compilar el proyecto desde el código fuente:
 
 ```bash
 # 1. Navegar al directorio del proyecto
-cd launcher_froshy
+cd launcher_mialu
 
 # 2. Compilar y empaquetar
 mvn clean package -DskipTests
 
 # 3. El JAR resultante estará en:
-# target/launcher-1.0-SNAPSHOT.jar
+# target/launcher_mialu.jar
 ```
 
 ### Ejecutar Tests
@@ -275,4 +275,8 @@ Para reportar problemas o sugerencias, abre un issue en el repositorio.
 **Estado**: ✅ Funcional
 
 ¡Disfruta tu Minecraft! 🎮
+
+
+
+
 

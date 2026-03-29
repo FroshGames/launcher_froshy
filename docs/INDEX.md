@@ -216,7 +216,7 @@ Este launcher es un **proyecto educativo completo** que demuestra:
 
 ### "Quiero ejecutar esto AHORA"
 1. [QUICKSTART.md](QUICKSTART.md) - 5 minutos
-2. Ejecutar: `mvn package && java -jar target/launcher-1.0-SNAPSHOT.jar`
+2. Ejecutar: `mvn package && java -jar target/launcher_mialu.jar`
 
 ### "Quiero entender cómo funciona"
 1. [docs/README.md](README.md) - Visión general + componentes
@@ -348,3 +348,10 @@ Si algo no está claro en la documentación:
 **Última actualización**: 2026-03-04  
 **Estado**: ✅ Completamente documentado  
 **Cobertura**: 95%+
+
+
+
+
+
+
+

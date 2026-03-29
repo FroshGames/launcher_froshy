@@ -1,9 +1,9 @@
 #!/bin/bash
-# Guía RÁPIDA de inicio para Froshy Launcher
+# Guía RÁPIDA de inicio para Launcher_Mialu
 
 echo ""
 echo "╔════════════════════════════════════════════════════════════╗"
-echo "║           🎮 Froshy Launcher - Inicio Rápido 🎮           ║"
+echo "║           🎮 Launcher_Mialu - Inicio Rápido 🎮           ║"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 

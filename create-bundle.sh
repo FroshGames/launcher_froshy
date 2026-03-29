@@ -1,12 +1,12 @@
 #!/bin/bash
-# Script para crear un bundle ejecutable de Froshy Launcher con Java integrado
-# Esto crea un archivo único "launcher_froshy" que contiene todo
+# Script para crear un bundle ejecutable de Launcher_Mialu con Java integrado
+# Esto crea un archivo único "launcher_mialu" que contiene todo
 
 set -e
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════╗"
-echo "║  Creando Bundle Ejecutable: launcher_froshy                  ║"
+echo "║  Creando Bundle Ejecutable: launcher_mialu                   ║"
 echo "║  (Java integrado, sin dependencias externas)                 ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
@@ -14,8 +14,8 @@ echo ""
 # Configuración
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BUILD_DIR="$SCRIPT_DIR/build-bundle"
-BUNDLE_NAME="launcher_froshy"
-JAR_FILE="$SCRIPT_DIR/target/launcher-1.0-SNAPSHOT.jar"
+BUNDLE_NAME="launcher_mialu"
+JAR_FILE="$SCRIPT_DIR/target/launcher_mialu.jar"
 JDK_URL="https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.9%2B9/OpenJDK17U-jdk_x64_linux_hotspot_17.0.9_9.tar.gz"
 
 # Detectar sistema operativo
@@ -78,7 +78,7 @@ echo "6️⃣  Creando script ejecutable..."
 # Crear script wrapper
 cat > "$BUILD_DIR/$BUNDLE_NAME" << 'LAUNCHER_SCRIPT'
 #!/bin/bash
-# Froshy Launcher - Ejecutable autocontendio
+# Launcher_Mialu - Ejecutable autocontendio
 
 # Obtener directorio del script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -127,11 +127,11 @@ echo "  🎯 Ejecutable único:  $SCRIPT_DIR/$BUNDLE_NAME"
 echo ""
 echo "CÓMO USAR:"
 echo "  Opción 1 (recomendado): Extrae el .tar.gz y ejecuta"
-echo "    tar -xzf launcher_froshy.tar.gz"
-echo "    ./build-bundle/launcher_froshy"
+echo "    tar -xzf launcher_mialu.tar.gz"
+echo "    ./build-bundle/launcher_mialu"
 echo ""
 echo "  Opción 2: Ejecuta directamente si tienes el bundle local"
-echo "    ./launcher_froshy"
+echo "    ./launcher_mialu"
 echo ""
 echo "════════════════════════════════════════════════════════════════"
 echo ""

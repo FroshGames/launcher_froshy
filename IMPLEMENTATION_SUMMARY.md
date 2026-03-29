@@ -1,4 +1,4 @@
-# 📋 Resumen de Implementación - Froshy Launcher v1.0
+# 📋 Resumen de Implementación - Launcher_Mialu v1.0
 
 ## ✅ Lo que se ha completado
 
@@ -59,12 +59,12 @@
 - ✅ Scripts de descarga para Windows (PowerShell)
 - ✅ Scripts de descarga para Linux/Mac (Bash)
 - ✅ Empaquetamiento con Maven Shade Plugin
-- ✅ JAR único con todas las dependencias: `launcher-1.0-SNAPSHOT.jar`
+- ✅ JAR único con todas las dependencias: `launcher.jar`
 - ✅ OpenJDK 17 Temurin integrable
 
 ### 8. **Scripts de Ejecución** ✓
-- ✅ `launcher.bat` - Ejecución en Windows
-- ✅ `launcher.sh` - Ejecución en Linux/Mac
+- ✅ `launcher_mialu.bat` - Ejecución en Windows
+- ✅ `launcher_mialu.sh` - Ejecución en Linux/Mac
 - ✅ Validación automática de requisitos
 - ✅ Mensajes de error claros
 - ✅ Configuración de memoria JVM
@@ -100,9 +100,9 @@
 ### Nuevos Archivos Creados:
 
 ```
-launcher_froshy/
-├── launcher.bat                          # Script ejecución Windows
-├── launcher.sh                           # Script ejecución Linux/Mac
+launcher_mialu/
+├── launcher_mialu.bat                          # Script ejecución Windows
+├── launcher_mialu.sh                           # Script ejecución Linux/Mac
 ├── INSTALLATION.md                       # Guía de instalación
 ├── scripts/
 │   ├── download-jdk.ps1                 # Descarga Java (Windows)
@@ -147,13 +147,13 @@ launcher_froshy/
 **Windows:**
 ```cmd
 PowerShell -ExecutionPolicy Bypass -File "scripts\download-jdk.ps1"
-launcher.bat
+launcher_mialu.bat
 ```
 
 **Linux/Mac:**
 ```bash
 bash scripts/download-jdk.sh
-bash launcher.sh
+bash launcher_mialu.sh
 ```
 
 ### Compilación:
@@ -165,7 +165,7 @@ mvn clean package -DskipTests
 ### Ejecución Directa:
 
 ```bash
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 ---
@@ -350,12 +350,12 @@ Se ha implementado un launcher profesional de Minecraft con:
 
 **El proyecto está listo para producción** y puede ejecutarse con:
 ```bash
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 O mediante scripts:
-- Windows: `launcher.bat`
-- Linux/Mac: `launcher.sh`
+- Windows: `launcher_mialu.bat`
+- Linux/Mac: `launcher_mialu.sh`
 
 ---
 
@@ -364,5 +364,13 @@ O mediante scripts:
 **Estado**: ✅ Completo y Funcional
 **Mantenedor**: Froshy Corp
 
-¡Gracias por usar Froshy Launcher! 🎮
+¡Gracias por usar Launcher_Mialu! 🎮
+
+
+
+
+
+
+
+
 
