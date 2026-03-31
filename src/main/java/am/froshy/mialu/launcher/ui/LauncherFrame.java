@@ -9,9 +9,11 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.*;
 import java.awt.geom.GeneralPath;
 import java.io.File;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -57,7 +59,7 @@ public final class LauncherFrame extends JFrame {
     private final JComboBox<String> modpackCompatField = new JComboBox<>(new String[]{"BOTH", "MODRINTH_ONLY", "CURSEFORGE_ONLY"});
     private final JList<MinecraftProfile> profilesEditorList = new JList<>(profilesModel);
     private final JTextField jvmArgsField  = new JTextField("-Xmx2G");
-    private final JTextField gameArgsField = new JTextField("--username Steve");
+    private final JTextField gameArgsField = new JTextField("");
     private final JTextArea  outputArea    = new JTextArea();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JProgressBar phaseProgressBar = new JProgressBar(0, 100);
@@ -65,7 +67,7 @@ public final class LauncherFrame extends JFrame {
     private final JLabel phaseLbl = new JLabel("IDLE");
     private final JLabel healthLbl = new JLabel("\u25CF API");
     private final JLabel updateLbl = new JLabel("");
-    private final JTextArea settingsUpdateArea = new JTextArea();
+    private final JLabel microsoftStatusLbl = new JLabel("Premium: offline");
     // Estado del juego en ejecución
     private volatile boolean         gameRunning     = false;
     private volatile String          currentLaunchId = null;
@@ -89,7 +91,8 @@ public final class LauncherFrame extends JFrame {
         buildUi();
         refreshProfiles();
         refreshHealth();
-        maybeRefreshUpdatesWeekly();
+        refreshUpdates();
+        refreshMicrosoftSession();
     }
     private void buildUi() {
         setUndecorated(true);
@@ -115,6 +118,11 @@ public final class LauncherFrame extends JFrame {
             @Override public void insertUpdate(DocumentEvent e) { scheduleLoadSkin(); }
             @Override public void removeUpdate(DocumentEvent e) { scheduleLoadSkin(); }
             @Override public void changedUpdate(DocumentEvent e) { scheduleLoadSkin(); }
+        });
+        nameField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { syncIdPreviewFromName(); }
+            @Override public void removeUpdate(DocumentEvent e) { syncIdPreviewFromName(); }
+            @Override public void changedUpdate(DocumentEvent e) { syncIdPreviewFromName(); }
         });
         
         addWindowListener(new WindowAdapter() {
@@ -370,9 +378,10 @@ public final class LauncherFrame extends JFrame {
         loaderTypeField.setEditable(false);
         loaderVersionField.setEditable(true);
         modpackCompatField.setEditable(false);
-        addFormField(form, "ID:", idField);
+        idField.setEditable(false);
+        idField.setToolTipText("Se genera automaticamente desde el nombre del perfil");
+        addFormField(form, "ID (auto):", idField);
         addFormField(form, "Nombre:", nameField);
-        addFormField(form, "Username:", usernameField);
         addFormField(form, "Modo:", profileModeField);
         addFormField(form, "Version:", versionField);
         addFormField(form, "Loader:", loaderTypeField);
@@ -442,46 +451,52 @@ public final class LauncherFrame extends JFrame {
         loadModpackCompatibility();
         return panel;
     }
+
     private JPanel buildSettingsCard() {
-        JPanel panel = new JPanel(new BorderLayout(10, 10)); panel.setOpaque(false);
-        panel.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        JPanel panel = new JPanel(new BorderLayout(10, 8));
+        panel.setOpaque(false);
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 14, 10, 14));
 
-        JLabel title = new JLabel("AJUSTES Y ACTUALIZACIONES");
-        title.setFont(new Font("Dialog", Font.BOLD, 13)); title.setForeground(C_CYAN);
+        JLabel title = new JLabel("CONFIGURACION GLOBAL");
+        title.setFont(new Font("Dialog", Font.BOLD, 13));
+        title.setForeground(C_CYAN);
 
-        settingsUpdateArea.setEditable(false);
-        settingsUpdateArea.setLineWrap(true);
-        settingsUpdateArea.setWrapStyleWord(true);
-        settingsUpdateArea.setOpaque(true);
-        settingsUpdateArea.setBackground(new Color(0x08, 0x08, 0x1e));
-        settingsUpdateArea.setForeground(C_TEXT);
-        settingsUpdateArea.setCaretColor(C_TEXT);
-        settingsUpdateArea.setFont(new Font("Dialog", Font.PLAIN, 11));
-        settingsUpdateArea.setBorder(BorderFactory.createCompoundBorder(
+        JPanel form = new JPanel(new GridLayout(0, 1, 0, 8));
+        form.setOpaque(false);
+        form.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(C_BORDER, 1),
                 BorderFactory.createEmptyBorder(10, 10, 10, 10)
         ));
-        settingsUpdateArea.setText("Repositorio vinculado: FroshGames/launcher_froshy\n"
-                + "Comprobación automática: una vez por semana al abrir el launcher.\n"
-                + "Pulsa 'Buscar actualizaciones' para revisar releases y descargar el package nuevo automáticamente.");
 
-        JScrollPane scroll = new JScrollPane(settingsUpdateArea);
-        scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.getViewport().setBackground(new Color(0x08, 0x08, 0x1e));
+        addFormField(form, "Nickname global:", usernameField);
+        JCheckBox preferPremiumCheck = new JCheckBox("Usar sesion premium si esta disponible");
+        preferPremiumCheck.setOpaque(false);
+        preferPremiumCheck.setForeground(C_TEXT);
+        preferPremiumCheck.setFont(new Font("Dialog", Font.PLAIN, 11));
+        addFormField(form, "Cuenta:", preferPremiumCheck);
 
-        JButton checkUpdatesBtn = buildNeonBtn("BUSCAR ACTUALIZACIONES", C_CYAN, 270, 36);
-        checkUpdatesBtn.addActionListener(e -> refreshUpdates(true, true));
-        JButton consoleBtn = buildNeonBtn("VER CONSOLA", C_BORDER, 150, 30);
-        consoleBtn.addActionListener(e -> contentCards.show(contentStack, "CONSOLE"));
+        JButton saveSettingsBtn = buildNeonBtn("Guardar configuracion", C_BORDER, 220, 34);
+        JButton msLoginBtn = buildNeonBtn("Login Microsoft", C_GREEN, 170, 30);
+        JButton msLogoutBtn = buildNeonBtn("Logout Premium", new Color(0xff, 0x99, 0x33), 165, 30);
 
-        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        btnRow.setOpaque(false);
-        btnRow.add(checkUpdatesBtn);
-        btnRow.add(consoleBtn);
+        saveSettingsBtn.addActionListener(e -> saveGlobalUserSettings(preferPremiumCheck.isSelected()));
+        msLoginBtn.addActionListener(e -> startMicrosoftLogin());
+        msLogoutBtn.addActionListener(e -> logoutMicrosoft());
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        actions.setOpaque(false);
+        microsoftStatusLbl.setFont(new Font("Dialog", Font.PLAIN, 10));
+        microsoftStatusLbl.setForeground(C_DIM);
+        actions.add(microsoftStatusLbl);
+        actions.add(msLoginBtn);
+        actions.add(msLogoutBtn);
+        actions.add(saveSettingsBtn);
 
         panel.add(title, BorderLayout.NORTH);
-        panel.add(scroll, BorderLayout.CENTER);
-        panel.add(btnRow, BorderLayout.SOUTH);
+        panel.add(form, BorderLayout.CENTER);
+        panel.add(actions, BorderLayout.SOUTH);
+
+        loadGlobalUserSettings(preferPremiumCheck);
         return panel;
     }
     private JPanel buildConsoleCard() {
@@ -658,108 +673,35 @@ public final class LauncherFrame extends JFrame {
             });
         });
     }
-    private void maybeRefreshUpdatesWeekly() {
-        refreshUpdates(false, false);
-    }
-
-    private void refreshUpdates(boolean manualTrigger, boolean showDialog) {
+    private void refreshUpdates() {
         runAsync(() -> {
-            LauncherUpdateStatus status = manualTrigger ? apiClient.checkUpdatesManual() : apiClient.checkUpdatesWeekly();
-            SwingUtilities.invokeLater(() -> applyUpdateStatus(status, manualTrigger, showDialog));
+            LauncherUpdateStatus status = apiClient.checkUpdates();
+            SwingUtilities.invokeLater(() -> {
+                if ("UPDATE_AVAILABLE".equals(status.state())) {
+                    updateLbl.setText("\u2191 Update: " + status.latestVersion());
+                    updateLbl.setForeground(new Color(0xff, 0xcc, 0x00));
+                } else {
+                    updateLbl.setText("\u2713 v" + status.currentVersion());
+                    updateLbl.setForeground(C_DIM);
+                }
+            });
         });
-    }
-
-    private void applyUpdateStatus(LauncherUpdateStatus status, boolean manualTrigger, boolean showDialog) {
-        if (status == null) {
-            updateLbl.setText("! update");
-            updateLbl.setForeground(new Color(0xff, 0x66, 0x66));
-            settingsUpdateArea.setText("No se pudo obtener el estado de actualizaciones.");
-            return;
-        }
-
-        String state = status.state() == null ? "" : status.state();
-        if ("UPDATE_AVAILABLE".equals(state) || "UPDATE_DOWNLOADED".equals(state)) {
-            updateLbl.setText("\u2191 Update: " + status.latestVersion());
-            updateLbl.setForeground(new Color(0xff, 0xcc, 0x00));
-        } else if ("CHECK_FAILED".equals(state)) {
-            updateLbl.setText("! update");
-            updateLbl.setForeground(new Color(0xff, 0x66, 0x66));
-        } else {
-            updateLbl.setText("\u2713 v" + status.currentVersion());
-            updateLbl.setForeground(C_DIM);
-        }
-
-        StringBuilder text = new StringBuilder();
-        text.append("Repositorio vinculado: FroshGames/launcher_froshy\n");
-        text.append("Estado: ").append(describeUpdateState(state)).append("\n");
-        text.append("Versión actual: ").append(status.currentVersion()).append("\n");
-        text.append("Última versión detectada: ").append(status.latestVersion()).append("\n");
-        if (status.checkedAt() != null && !status.checkedAt().isBlank()) {
-            text.append("Última comprobación: ").append(status.checkedAt()).append("\n");
-        }
-        if (status.downloadedAssetName() != null && !status.downloadedAssetName().isBlank()) {
-            text.append("Package descargado: ").append(status.downloadedAssetName()).append("\n");
-        }
-        if (status.downloadedFile() != null && !status.downloadedFile().isBlank()) {
-            text.append("Ruta descargada: ").append(status.downloadedFile()).append("\n");
-        }
-        if (status.notes() != null && !status.notes().isBlank()) {
-            text.append("Notas: ").append(status.notes());
-        }
-        settingsUpdateArea.setText(text.toString());
-
-        if (!"SKIPPED".equals(state)) {
-            appendOutput("[Updates] " + describeUpdateState(state) + ": " + status.latestVersion());
-        }
-
-        if (manualTrigger && showDialog) {
-            String message = switch (state) {
-                case "UPDATE_DOWNLOADED" -> "Se descargó automáticamente el package nuevo en:\n" + status.downloadedFile();
-                case "UP_TO_DATE" -> "No hay actualizaciones. Ya estás en la versión más reciente.";
-                case "CHECK_FAILED" -> "No se pudo comprobar actualizaciones:\n" + status.notes();
-                case "UPDATE_AVAILABLE" -> "Se detectó una actualización, pero no había un asset descargable compatible.";
-                case "SKIPPED" -> "La comprobación semanal aún no corresponde.";
-                default -> describeUpdateState(state);
-            };
-            JOptionPane.showMessageDialog(this, message, "Actualizaciones",
-                    "CHECK_FAILED".equals(state) ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
-        }
-    }
-
-    private String describeUpdateState(String state) {
-        return switch (state == null ? "" : state) {
-            case "UPDATE_DOWNLOADED" -> "Actualización descargada";
-            case "UPDATE_AVAILABLE" -> "Actualización disponible";
-            case "UP_TO_DATE" -> "Sin actualizaciones";
-            case "SKIPPED" -> "Comprobación semanal omitida";
-            case "CHECK_FAILED" -> "Comprobación fallida";
-            default -> "Estado desconocido";
-        };
     }
     private void upsertProfile() {
         boolean creating = editingProfileId == null;
-        String formId = idField.getText().trim();
-        String effectiveId = creating ? formId : editingProfileId;
         String name = nameField.getText().trim();
-        String username = usernameField.getText().trim();
+        String generatedId = deriveProfileIdPreview(name);
+        String effectiveId = creating ? generatedId : editingProfileId;
         boolean modpackMode = isModpackImportMode();
 
         if (name.isEmpty()) {
             JOptionPane.showMessageDialog(this, "El nombre es obligatorio", "Validacion", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        if (creating && effectiveId.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "El ID es obligatorio al crear un perfil", "Validacion", JOptionPane.WARNING_MESSAGE);
+        if (creating && generatedId.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "El nombre del perfil no genera un ID valido", "Validacion", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        if (!isValidMinecraftUsername(username)) {
-            JOptionPane.showMessageDialog(this,
-                    "Username invalido. Usa 3-16 caracteres: letras, numeros o _",
-                    "Validacion",
-                    JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
         String modpackPath = modpackMode ? modpackPathField.getText().trim() : "";
         if (modpackMode && modpackPath.isBlank()) {
             JOptionPane.showMessageDialog(this, "Selecciona un modpack existente para importarlo", "Validacion", JOptionPane.WARNING_MESSAGE);
@@ -769,7 +711,7 @@ public final class LauncherFrame extends JFrame {
         String loaderType = modpackMode ? "VANILLA" : selectedComboValue(loaderTypeField, "VANILLA");
         String loaderVersion = modpackMode ? "" : selectedComboValue(loaderVersionField, "");
 
-        List<String> effectiveGameArgs = ensureUsernameArg(splitArgs(gameArgsField.getText()), username);
+        List<String> effectiveGameArgs = splitArgs(gameArgsField.getText());
 
         MinecraftProfile profile = new MinecraftProfile(effectiveId, name, "java", selectedComboValue(versionField, "1.20.1"),
                 splitArgs(jvmArgsField.getText()), effectiveGameArgs,
@@ -887,9 +829,7 @@ public final class LauncherFrame extends JFrame {
     private void loadProfileIntoForm(MinecraftProfile p) {
         editingProfileId = p.id();
         idField.setText(p.id());
-        idField.setEditable(false);
         nameField.setText(p.displayName());
-        usernameField.setText(extractUsernameFromArgs(p.gameArgs(), p.displayName()));
         profileModeField.setSelectedItem(inferProfileMode(p));
         versionField.setSelectedItem(p.gameVersion());
         loaderTypeField.setSelectedItem(p.loaderType());
@@ -906,10 +846,8 @@ public final class LauncherFrame extends JFrame {
     private void startCreateProfileMode() {
         editingProfileId = null;
         profilesEditorList.clearSelection();
-        idField.setEditable(true);
         idField.setText("");
         nameField.setText("");
-        usernameField.setText("Steve");
         profileModeField.setSelectedItem("INSTANCIA MANUAL");
         versionField.setSelectedItem("1.20.1");
         loaderTypeField.setSelectedItem("FORGE");
@@ -933,9 +871,8 @@ public final class LauncherFrame extends JFrame {
             modpackBrowseBtn.setEnabled(!manualMode);
             modpackBrowseBtn.repaint();
         }
-        applyFieldStyle(idField, idField.isEditable());
+        applyFieldStyle(idField, false);
         applyFieldStyle(nameField, true);
-        applyFieldStyle(usernameField, true);
         applyFieldStyle(versionField, manualMode);
         applyFieldStyle(loaderTypeField, manualMode);
         applyFieldStyle(loaderVersionField, manualMode);
@@ -1354,6 +1291,142 @@ public final class LauncherFrame extends JFrame {
 
     private boolean isValidMinecraftUsername(String username) {
         return username != null && username.matches("^[A-Za-z0-9_]{3,16}$");
+    }
+
+    private String deriveProfileIdPreview(String displayName) {
+        if (displayName == null || displayName.isBlank()) {
+            return "";
+        }
+        return displayName.trim()
+                .replaceAll("\\s+", "_")
+                .replaceAll("[^A-Za-z0-9._-]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_+|_+$", "")
+                .toLowerCase();
+    }
+
+    private void syncIdPreviewFromName() {
+        if (editingProfileId != null) {
+            return;
+        }
+        idField.setText(deriveProfileIdPreview(nameField.getText()));
+    }
+
+    private void refreshMicrosoftSession() {
+        runAsync(() -> {
+            var status = apiClient.getMicrosoftSessionStatus();
+            Map<String, Object> settings = apiClient.getGlobalUserSettings();
+
+            if (status.connected()) {
+                boolean preferPremium = !Boolean.FALSE.equals(settings.get("preferPremium"));
+                String currentUsername = settings.get("username") == null ? "Steve" : settings.get("username").toString();
+                if (preferPremium && !status.playerName().equalsIgnoreCase(currentUsername)) {
+                    settings = apiClient.setGlobalUserSettings(status.playerName(), true);
+                }
+            }
+
+            Map<String, Object> effectiveSettings = settings;
+            SwingUtilities.invokeLater(() -> {
+                if (status.connected()) {
+                    microsoftStatusLbl.setText("Premium: " + status.playerName());
+                    microsoftStatusLbl.setForeground(C_GREEN);
+                } else {
+                    microsoftStatusLbl.setText("Premium: offline");
+                    microsoftStatusLbl.setForeground(C_DIM);
+                }
+
+                Object username = effectiveSettings.get("username");
+                if (username != null && isValidMinecraftUsername(username.toString())) {
+                    usernameField.setText(username.toString());
+                }
+            });
+        });
+    }
+
+    private void loadGlobalUserSettings(JCheckBox preferPremiumCheck) {
+        runAsync(() -> {
+            Map<String, Object> settings = apiClient.getGlobalUserSettings();
+            SwingUtilities.invokeLater(() -> {
+                Object username = settings.get("username");
+                Object preferPremium = settings.get("preferPremium");
+                usernameField.setText(username == null ? "Steve" : username.toString());
+                preferPremiumCheck.setSelected(!Boolean.FALSE.equals(preferPremium));
+            });
+        });
+    }
+
+    private void saveGlobalUserSettings(boolean preferPremium) {
+        String username = usernameField.getText().trim();
+        if (!isValidMinecraftUsername(username)) {
+            JOptionPane.showMessageDialog(this,
+                    "Nickname global invalido. Usa 3-16 caracteres: letras, numeros o _",
+                    "Configuracion",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        runAsync(() -> {
+            apiClient.setGlobalUserSettings(username, preferPremium);
+            SwingUtilities.invokeLater(() -> appendOutput("[Config] Nickname global guardado: " + username));
+        });
+    }
+
+    private void startMicrosoftLogin() {
+        runAsync(() -> {
+            var device = apiClient.startMicrosoftDeviceLogin();
+
+            openMicrosoftVerificationUrl(device.verificationUriComplete());
+            copyToClipboard(device.userCode());
+
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(this,
+                        device.message()
+                                + "\n\nCodigo (copiado): " + device.userCode()
+                                + "\nURL: " + device.verificationUri(),
+                        "Login Microsoft",
+                        JOptionPane.INFORMATION_MESSAGE);
+                appendOutput("[Premium] Esperando confirmacion del dispositivo para codigo: " + device.userCode());
+            });
+
+            var session = apiClient.completeMicrosoftDeviceLogin(device.deviceCode());
+            SwingUtilities.invokeLater(() -> {
+                appendOutput("[Premium] Login completado: " + session.playerName());
+                refreshMicrosoftSession();
+            });
+        });
+    }
+
+    private void openMicrosoftVerificationUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(URI.create(url));
+            }
+        } catch (Exception ex) {
+            appendOutput("[Premium] No se pudo abrir el navegador automaticamente: " + ex.getMessage());
+        }
+    }
+
+    private void copyToClipboard(String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+        } catch (Exception ex) {
+            appendOutput("[Premium] No se pudo copiar el codigo al portapapeles: " + ex.getMessage());
+        }
+    }
+
+    private void logoutMicrosoft() {
+        runAsync(() -> {
+            apiClient.logoutMicrosoftSession();
+            SwingUtilities.invokeLater(() -> {
+                appendOutput("[Premium] Sesion Microsoft cerrada.");
+                refreshMicrosoftSession();
+            });
+        });
     }
     private static JPanel fixedHeight(JPanel p, int h) {
         p.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));

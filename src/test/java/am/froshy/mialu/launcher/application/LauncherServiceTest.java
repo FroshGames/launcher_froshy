@@ -87,7 +87,7 @@ class LauncherServiceTest {
         service.createProfile(profile);
 
         assertEquals(1, service.listProfiles().size());
-        assertEquals("default", service.listProfiles().get(0).id());
+        assertEquals("perfil_principal", service.listProfiles().get(0).id());
         service.shutdown();
     }
 
@@ -113,10 +113,10 @@ class LauncherServiceTest {
                     "VANILLA", "", ""
             ));
 
-            LaunchResult result = service.prepareAndLaunch(new LaunchRequest("pvp", false));
+            LaunchResult result = service.prepareAndLaunch(new LaunchRequest("perfil_pvp", false));
             Path versionJar = config.gameDirectory()
                     .resolve("instances")
-                    .resolve("pvp")
+                    .resolve("perfil_pvp")
                     .resolve("versions")
                     .resolve("1.8.9")
                     .resolve("1.8.9.jar");
@@ -159,12 +159,12 @@ class LauncherServiceTest {
                     "FABRIC", "0.15.11", ""
             ));
 
-            assertEquals("survival", updated.id());
+            assertEquals("survival_editado", updated.id());
             assertEquals("Survival Editado", updated.displayName());
             assertEquals(1, service.listProfiles().size());
-            assertEquals("survival", service.listProfiles().get(0).id());
-            assertTrue(service.getProfileInstancePath("survival").endsWith("instances" + java.io.File.separator + "survival"));
-            assertTrue(Files.isDirectory(Path.of(service.getProfileInstancePath("survival"))));
+            assertEquals("survival_editado", service.listProfiles().get(0).id());
+            assertTrue(service.getProfileInstancePath("survival_editado").endsWith("instances" + java.io.File.separator + "survival_editado"));
+            assertTrue(Files.isDirectory(Path.of(service.getProfileInstancePath("survival_editado"))));
         } finally {
             service.shutdown();
         }
@@ -197,13 +197,13 @@ class LauncherServiceTest {
                     "FORGE", "47.3.0", ""
             ));
 
-            Path instanceA = Path.of(service.getProfileInstancePath("forge-a"));
-            Path instanceB = Path.of(service.getProfileInstancePath("forge-b"));
+            Path instanceA = Path.of(service.getProfileInstancePath("forge_a"));
+            Path instanceB = Path.of(service.getProfileInstancePath("forge_b"));
 
             assertTrue(Files.isDirectory(instanceA));
             assertTrue(Files.isDirectory(instanceB));
-            assertTrue(instanceA.endsWith(Path.of("instances", "forge-a")));
-            assertTrue(instanceB.endsWith(Path.of("instances", "forge-b")));
+            assertTrue(instanceA.endsWith(Path.of("instances", "forge_a")));
+            assertTrue(instanceB.endsWith(Path.of("instances", "forge_b")));
             assertTrue(!instanceA.equals(instanceB));
         } finally {
             service.shutdown();
@@ -238,7 +238,7 @@ class LauncherServiceTest {
             );
             service.createProfile(profile);
 
-            assertNotNull(service.launch(new LaunchRequest("cf", false)).launchId());
+            assertNotNull(service.launch(new LaunchRequest("curse_pack", false)).launchId());
         } finally {
             service.shutdown();
         }
@@ -273,7 +273,7 @@ class LauncherServiceTest {
             service.createProfile(profile);
 
             IllegalStateException ex = assertThrows(IllegalStateException.class,
-                    () -> service.launch(new LaunchRequest("cf-blocked", false)));
+                    () -> service.launch(new LaunchRequest("curse_pack", false)));
             assertTrue(ex.getMessage().contains("Formato de modpack no permitido"));
         } finally {
             service.shutdown();
