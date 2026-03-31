@@ -3,7 +3,7 @@ package am.froshy.mialu.launcher.config;
 import java.time.Instant;
 
 /**
- * Configuración persisitida del launcher (modo rendimiento, intervalos de polling, etc.).
+ * Configuracion persistida del launcher (rendimiento, updates e identidad global).
  */
 public record LauncherSettings(
         boolean performanceMode,
@@ -13,16 +13,19 @@ public record LauncherSettings(
         Instant lastUpdateCheckAt,
         String lastDownloadedVersion,
         String lastDownloadedAssetName,
-        String lastDownloadedFile
+        String lastDownloadedFile,
+        String globalUsername,
+        boolean preferPremiumLogin
 ) {
     public LauncherSettings {
         if (consolePollIntervalMs <= 0) consolePollIntervalMs = 600;
         if (launchPollIntervalMs  <= 0) launchPollIntervalMs  = 300;
         if (progressThresholdPct  <= 0) progressThresholdPct  = 1;
+        if (globalUsername == null || globalUsername.isBlank()) globalUsername = "Steve";
     }
 
     public static LauncherSettings defaults() {
-        return new LauncherSettings(false, 600, 300, 1, null, "", "", "");
+        return new LauncherSettings(false, 600, 300, 1, null, "", "", "", "Steve", true);
     }
 
     public LauncherSettings withPerformanceMode(boolean perf) {
@@ -34,7 +37,9 @@ public record LauncherSettings(
                 lastUpdateCheckAt,
                 lastDownloadedVersion,
                 lastDownloadedAssetName,
-                lastDownloadedFile
+                lastDownloadedFile,
+                globalUsername,
+                preferPremiumLogin
         );
     }
 
@@ -47,7 +52,9 @@ public record LauncherSettings(
                 checkedAt,
                 lastDownloadedVersion,
                 lastDownloadedAssetName,
-                lastDownloadedFile
+                lastDownloadedFile,
+                globalUsername,
+                preferPremiumLogin
         );
     }
 
@@ -60,10 +67,24 @@ public record LauncherSettings(
                 lastUpdateCheckAt,
                 version == null ? "" : version,
                 assetName == null ? "" : assetName,
-                file == null ? "" : file
+                file == null ? "" : file,
+                globalUsername,
+                preferPremiumLogin
+        );
+    }
+
+    public LauncherSettings withGlobalUser(String username, boolean preferPremium) {
+        return new LauncherSettings(
+                performanceMode,
+                consolePollIntervalMs,
+                launchPollIntervalMs,
+                progressThresholdPct,
+                lastUpdateCheckAt,
+                lastDownloadedVersion,
+                lastDownloadedAssetName,
+                lastDownloadedFile,
+                username,
+                preferPremium
         );
     }
 }
-
-
-

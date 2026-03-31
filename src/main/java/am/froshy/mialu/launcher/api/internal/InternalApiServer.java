@@ -15,7 +15,6 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -63,6 +62,14 @@ public final class InternalApiServer {
         server.createContext("/internal/v1/updates/check",    exchange -> withErrorHandling(exchange, this::handleUpdateCheck));
         server.createContext("/internal/v1/versions/prepare", exchange -> withErrorHandling(exchange, this::handlePrepareVersion));
         server.createContext("/internal/v1/settings/modpack-compat", exchange -> withErrorHandling(exchange, this::handleModpackCompatibility));
+        server.createContext("/internal/v1/settings/user", exchange -> withErrorHandling(exchange, this::handleUserSettings));
+        server.createContext("/internal/v1/auth/microsoft/login/start", exchange -> withErrorHandling(exchange, this::handleMicrosoftLoginStart));
+        server.createContext("/internal/v1/auth/microsoft/login/complete", exchange -> withErrorHandling(exchange, this::handleMicrosoftLoginComplete));
+        server.createContext("/", this::handleMicrosoftCallback);
+        server.createContext("/internal/v1/auth/microsoft/device/start", exchange -> withErrorHandling(exchange, this::handleMicrosoftDeviceStart));
+        server.createContext("/internal/v1/auth/microsoft/device/complete", exchange -> withErrorHandling(exchange, this::handleMicrosoftDeviceComplete));
+        server.createContext("/internal/v1/auth/microsoft/session", exchange -> withErrorHandling(exchange, this::handleMicrosoftSession));
+        server.createContext("/internal/v1/auth/microsoft/logout", exchange -> withErrorHandling(exchange, this::handleMicrosoftLogout));
     }
 
     private void handleHealth(HttpExchange exchange) throws IOException {
@@ -74,7 +81,7 @@ public final class InternalApiServer {
     }
 
     private void handleProfiles(HttpExchange exchange) throws IOException {
-        String path = exchange.getRequestURI().getRawPath();
+        String path = exchange.getRequestURI().getPath();
         String method = exchange.getRequestMethod();
         String basePath = "/internal/v1/profiles";
 
@@ -90,13 +97,13 @@ public final class InternalApiServer {
         }
 
         if ("GET".equalsIgnoreCase(method) && path.startsWith(basePath + "/") && path.endsWith("/instance-path")) {
-            String profileId = decodeUrlComponent(path.substring((basePath + "/").length(), path.length() - "/instance-path".length()));
+            String profileId = path.substring((basePath + "/").length(), path.length() - "/instance-path".length());
             sendJson(exchange, 200, Map.of("instancePath", launcherService.getProfileInstancePath(profileId)));
             return;
         }
 
         if ("PUT".equalsIgnoreCase(method) && path.startsWith(basePath + "/")) {
-            String existingId = decodeUrlComponent(path.substring((basePath + "/").length()));
+            String existingId = path.substring((basePath + "/").length());
             MinecraftProfile profile = readBody(exchange, MinecraftProfile.class);
             MinecraftProfile updated = launcherService.updateProfile(existingId, profile);
             sendJson(exchange, 200, updated);
@@ -104,7 +111,7 @@ public final class InternalApiServer {
         }
 
         if ("DELETE".equalsIgnoreCase(method) && path.startsWith(basePath + "/")) {
-            String profileId = decodeUrlComponent(path.substring((basePath + "/").length()));
+            String profileId = path.substring((basePath + "/").length());
             MinecraftProfile deleted = launcherService.deleteProfile(profileId);
             sendJson(exchange, 200, deleted);
             return;
@@ -114,7 +121,7 @@ public final class InternalApiServer {
     }
 
     private void handleLaunch(HttpExchange exchange) throws IOException {
-        String path   = exchange.getRequestURI().getRawPath();
+        String path   = exchange.getRequestURI().getPath();
         String method = exchange.getRequestMethod();
 
         // POST /internal/v1/launch  → iniciar juego
@@ -127,7 +134,7 @@ public final class InternalApiServer {
         // GET /internal/v1/launch/{id}/output?from=N  → líneas de output
         if ("GET".equalsIgnoreCase(method) && path.endsWith("/output")) {
             String id = extractSegment(path, "/output");
-            int fromIndex = parseQueryInt(exchange.getRequestURI().getRawQuery(), "from", 0);
+            int fromIndex = parseQueryInt(exchange.getRequestURI().getQuery(), "from", 0);
             sendJson(exchange, 200, launcherService.getGameOutput(id, fromIndex));
             return;
         }
@@ -144,26 +151,16 @@ public final class InternalApiServer {
 
     private static String extractSegment(String path, String suffix) {
         String base = "/internal/v1/launch/";
-        return decodeUrlComponent(path.substring(base.length(), path.length() - suffix.length()));
+        String mid  = path.substring(base.length(), path.length() - suffix.length());
+        return mid;
     }
 
     private static int parseQueryInt(String query, String key, int defaultVal) {
         if (query == null) return defaultVal;
         for (String param : query.split("&")) {
             if (param.startsWith(key + "=")) {
-                try { return Integer.parseInt(decodeUrlComponent(param.substring(key.length() + 1))); }
+                try { return Integer.parseInt(param.substring(key.length() + 1)); }
                 catch (NumberFormatException ignored) {}
-            }
-        }
-        return defaultVal;
-    }
-
-    private static String parseQueryString(String query, String key, String defaultVal) {
-        if (query == null || query.isBlank()) return defaultVal;
-        for (String param : query.split("&")) {
-            if (param.startsWith(key + "=")) {
-                String value = decodeUrlComponent(param.substring(key.length() + 1));
-                return value.isBlank() ? defaultVal : value;
             }
         }
         return defaultVal;
@@ -171,7 +168,7 @@ public final class InternalApiServer {
 
     private void handleLaunchPrepared(HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
-        String path = exchange.getRequestURI().getRawPath();
+        String path = exchange.getRequestURI().getPath();
 
         if ("POST".equalsIgnoreCase(method) && "/internal/v1/launch-prepared".equals(path)) {
             LaunchRequest request = readBody(exchange, LaunchRequest.class);
@@ -180,7 +177,7 @@ public final class InternalApiServer {
         }
 
         if ("GET".equalsIgnoreCase(method) && path.startsWith("/internal/v1/launch-prepared/")) {
-            String opId = decodeUrlComponent(path.substring("/internal/v1/launch-prepared/".length()));
+            String opId = path.substring("/internal/v1/launch-prepared/".length());
             launcherService.getPreparedLaunchStatus(opId)
                     .ifPresentOrElse(
                             status -> sendJsonUnchecked(exchange, 200, status),
@@ -203,7 +200,7 @@ public final class InternalApiServer {
 
     private void handleDownloads(HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
-        String fullPath = exchange.getRequestURI().getRawPath();
+        String fullPath = exchange.getRequestURI().getPath();
         String basePath = "/internal/v1/downloads";
 
         if ("POST".equalsIgnoreCase(method) && basePath.equals(fullPath)) {
@@ -213,7 +210,7 @@ public final class InternalApiServer {
         }
 
         if ("GET".equalsIgnoreCase(method) && fullPath.startsWith(basePath + "/")) {
-            String id = decodeUrlComponent(fullPath.substring((basePath + "/").length()));
+            String id = fullPath.substring((basePath + "/").length());
             launcherService.getDownloadStatus(id)
                     .ifPresentOrElse(
                             status -> sendJsonUnchecked(exchange, 200, status),
@@ -230,9 +227,7 @@ public final class InternalApiServer {
             sendMethodNotAllowed(exchange, List.of("GET"));
             return;
         }
-        String trigger = parseQueryString(exchange.getRequestURI().getQuery(), "trigger", "MANUAL");
-        boolean manual = !"WEEKLY".equalsIgnoreCase(trigger.toUpperCase(Locale.ROOT));
-        sendJson(exchange, 200, updateService.checkForUpdates(manual));
+        sendJson(exchange, 200, updateService.checkForUpdates());
     }
 
     private void handlePrepareVersion(HttpExchange exchange) throws IOException {
@@ -273,8 +268,102 @@ public final class InternalApiServer {
         sendMethodNotAllowed(exchange, List.of("GET", "POST"));
     }
 
-    private static String decodeUrlComponent(String value) {
-        return URLDecoder.decode(value, StandardCharsets.UTF_8);
+    private void handleUserSettings(HttpExchange exchange) throws IOException {
+        String method = exchange.getRequestMethod();
+        if ("GET".equalsIgnoreCase(method)) {
+            sendJson(exchange, 200, launcherService.getGlobalUserSettings());
+            return;
+        }
+        if ("POST".equalsIgnoreCase(method)) {
+            Map<String, Object> request = readBody(exchange, new TypeReference<>() {});
+            String username = request.get("username") == null ? "" : request.get("username").toString();
+            boolean preferPremium = !Boolean.FALSE.equals(request.get("preferPremium"));
+            sendJson(exchange, 200, launcherService.updateGlobalUserSettings(username, preferPremium));
+            return;
+        }
+        sendMethodNotAllowed(exchange, List.of("GET", "POST"));
+    }
+
+    private void handleMicrosoftDeviceStart(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        sendJson(exchange, 200, launcherService.startMicrosoftDeviceLogin());
+    }
+
+    private void handleMicrosoftLoginStart(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        sendJson(exchange, 200, launcherService.startMicrosoftBrowserLogin());
+    }
+
+    private void handleMicrosoftLoginComplete(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        Map<String, String> request = readBody(exchange, new TypeReference<>() {});
+        sendJson(exchange, 200, launcherService.completeMicrosoftBrowserLogin(request.get("operationId")));
+    }
+
+    private void handleMicrosoftCallback(HttpExchange exchange) throws IOException {
+        try {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "GET");
+                sendHtml(exchange, 405, "Metodo no permitido");
+                return;
+            }
+
+            String path = exchange.getRequestURI().getPath();
+            String rawQuery = exchange.getRequestURI().getRawQuery();
+            boolean oauthCallback = "/".equals(path) && rawQuery != null
+                    && (rawQuery.contains("code=") || rawQuery.contains("error=") || rawQuery.contains("state="));
+            if (!oauthCallback) {
+                sendHtml(exchange, 200, "<html><body><h3>Launcher_Mialu API</h3><p>Servicio activo.</p></body></html>");
+                return;
+            }
+
+            Map<String, String> query = parseQuery(rawQuery);
+            String html = launcherService.handleMicrosoftBrowserCallback(
+                    query.get("state"),
+                    query.get("code"),
+                    query.get("error"),
+                    query.get("error_description")
+            );
+            sendHtml(exchange, 200, html);
+        } catch (Exception ex) {
+            sendHtml(exchange, 500, "<html><body><h3>Error</h3><p>" + ex.getMessage() + "</p></body></html>");
+        } finally {
+            exchange.close();
+        }
+    }
+
+    private void handleMicrosoftDeviceComplete(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        Map<String, String> request = readBody(exchange, new TypeReference<>() {});
+        sendJson(exchange, 200, launcherService.completeMicrosoftDeviceLogin(request.get("deviceCode")));
+    }
+
+    private void handleMicrosoftSession(HttpExchange exchange) throws IOException {
+        if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("GET"));
+            return;
+        }
+        sendJson(exchange, 200, launcherService.getMicrosoftSessionStatus());
+    }
+
+    private void handleMicrosoftLogout(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        sendJson(exchange, 200, launcherService.logoutMicrosoftSession());
     }
 
     private <T> T readBody(HttpExchange exchange, Class<T> type) throws IOException {
@@ -311,6 +400,26 @@ public final class InternalApiServer {
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         exchange.sendResponseHeaders(statusCode, payload.length);
         exchange.getResponseBody().write(payload);
+    }
+
+    private void sendHtml(HttpExchange exchange, int statusCode, String html) throws IOException {
+        byte[] payload = html.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(statusCode, payload.length);
+        exchange.getResponseBody().write(payload);
+    }
+
+    private static Map<String, String> parseQuery(String rawQuery) {
+        if (rawQuery == null || rawQuery.isBlank()) return Map.of();
+        java.util.HashMap<String, String> map = new java.util.HashMap<>();
+        for (String token : rawQuery.split("&")) {
+            int idx = token.indexOf('=');
+            if (idx <= 0) continue;
+            String key = URLDecoder.decode(token.substring(0, idx), StandardCharsets.UTF_8);
+            String val = URLDecoder.decode(token.substring(idx + 1), StandardCharsets.UTF_8);
+            map.put(key, val);
+        }
+        return map;
     }
 
     private void sendJsonUnchecked(HttpExchange exchange, int statusCode, Object body) {

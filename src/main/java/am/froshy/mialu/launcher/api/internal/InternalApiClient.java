@@ -4,6 +4,9 @@ import am.froshy.mialu.launcher.domain.DownloadStatus;
 import am.froshy.mialu.launcher.domain.LaunchRequest;
 import am.froshy.mialu.launcher.domain.LaunchResult;
 import am.froshy.mialu.launcher.domain.LauncherUpdateStatus;
+import am.froshy.mialu.launcher.domain.MicrosoftBrowserLogin;
+import am.froshy.mialu.launcher.domain.MicrosoftDeviceCode;
+import am.froshy.mialu.launcher.domain.MicrosoftSessionStatus;
 import am.froshy.mialu.launcher.domain.MinecraftProfile;
 import am.froshy.mialu.launcher.domain.PreparedLaunchStatus;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -11,11 +14,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -47,15 +48,15 @@ public final class InternalApiClient {
     }
 
     public MinecraftProfile updateProfile(String existingId, MinecraftProfile profile) {
-        return send("profiles/" + encodePathSegment(existingId), "PUT", profile, new TypeReference<>() {});
+        return send("profiles/" + existingId, "PUT", profile, new TypeReference<>() {});
     }
 
     public void deleteProfile(String profileId) {
-        send("profiles/" + encodePathSegment(profileId), "DELETE", null, new TypeReference<Map<String, Object>>() {});
+        send("profiles/" + profileId, "DELETE", null, new TypeReference<Map<String, Object>>() {});
     }
 
     public String getProfileInstancePath(String profileId) {
-        Map<String, Object> response = send("profiles/" + encodePathSegment(profileId) + "/instance-path", "GET", null, new TypeReference<>() {});
+        Map<String, Object> response = send("profiles/" + profileId + "/instance-path", "GET", null, new TypeReference<>() {});
         Object instancePath = response.get("instancePath");
         return instancePath == null ? "" : instancePath.toString();
     }
@@ -73,7 +74,7 @@ public final class InternalApiClient {
     }
 
     public PreparedLaunchStatus getLaunchPreparedStatus(String operationId) {
-        return send("launch-prepared/" + encodePathSegment(operationId), "GET", null, new TypeReference<>() {});
+        return send("launch-prepared/" + operationId, "GET", null, new TypeReference<>() {});
     }
 
     public DownloadStatus startDownload(String target) {
@@ -81,19 +82,11 @@ public final class InternalApiClient {
     }
 
     public DownloadStatus getDownloadStatus(String downloadId) {
-        return send("downloads/" + encodePathSegment(downloadId), "GET", null, new TypeReference<>() {});
+        return send("downloads/" + downloadId, "GET", null, new TypeReference<>() {});
     }
 
     public LauncherUpdateStatus checkUpdates() {
-        return checkUpdatesManual();
-    }
-
-    public LauncherUpdateStatus checkUpdatesManual() {
-        return send("updates/check?trigger=MANUAL", "GET", null, new TypeReference<>() {});
-    }
-
-    public LauncherUpdateStatus checkUpdatesWeekly() {
-        return send("updates/check?trigger=WEEKLY", "GET", null, new TypeReference<>() {});
+        return send("updates/check", "GET", null, new TypeReference<>() {});
     }
 
     public DownloadStatus prepareVersion(String version) {
@@ -113,12 +106,47 @@ public final class InternalApiClient {
     }
 
     public Map<String, Object> getGameOutput(String launchId, int fromIndex) {
-        return send("launch/" + encodePathSegment(launchId) + "/output?from=" + fromIndex, "GET", null, new TypeReference<>() {});
+        return send("launch/" + launchId + "/output?from=" + fromIndex, "GET", null, new TypeReference<>() {});
     }
 
     public boolean isGameAlive(String launchId) {
-        Map<String, Object> res = send("launch/" + encodePathSegment(launchId) + "/alive", "GET", null, new TypeReference<>() {});
+        Map<String, Object> res = send("launch/" + launchId + "/alive", "GET", null, new TypeReference<>() {});
         return Boolean.TRUE.equals(res.get("alive"));
+    }
+
+    public MicrosoftBrowserLogin startMicrosoftBrowserLogin() {
+        return send("auth/microsoft/login/start", "POST", Map.of(), new TypeReference<>() {});
+    }
+
+    public MicrosoftSessionStatus completeMicrosoftBrowserLogin(String operationId) {
+        return send("auth/microsoft/login/complete", "POST", Map.of("operationId", operationId), new TypeReference<>() {});
+    }
+
+    public MicrosoftDeviceCode startMicrosoftDeviceLogin() {
+        return send("auth/microsoft/device/start", "POST", Map.of(), new TypeReference<>() {});
+    }
+
+    public MicrosoftSessionStatus completeMicrosoftDeviceLogin(String deviceCode) {
+        return send("auth/microsoft/device/complete", "POST", Map.of("deviceCode", deviceCode), new TypeReference<>() {});
+    }
+
+    public MicrosoftSessionStatus getMicrosoftSessionStatus() {
+        return send("auth/microsoft/session", "GET", null, new TypeReference<>() {});
+    }
+
+    public MicrosoftSessionStatus logoutMicrosoftSession() {
+        return send("auth/microsoft/logout", "POST", Map.of(), new TypeReference<>() {});
+    }
+
+    public Map<String, Object> getGlobalUserSettings() {
+        return send("settings/user", "GET", null, new TypeReference<>() {});
+    }
+
+    public Map<String, Object> setGlobalUserSettings(String username, boolean preferPremium) {
+        return send("settings/user", "POST", Map.of(
+                "username", username,
+                "preferPremium", preferPremium
+        ), new TypeReference<>() {});
     }
 
     private <T> T send(String path, String method, Object body, TypeReference<T> typeReference) {
@@ -147,16 +175,8 @@ public final class InternalApiClient {
             return builder.GET().build();
         }
 
-        if (body == null) {
-            return builder.method(method, HttpRequest.BodyPublishers.noBody()).build();
-        }
-
         byte[] payload = objectMapper.writeValueAsBytes(body);
         return builder.method(method, HttpRequest.BodyPublishers.ofByteArray(payload)).build();
-    }
-
-    private String encodePathSegment(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 }
 

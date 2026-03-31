@@ -1,13 +1,20 @@
 package am.froshy.mialu.launcher.application;
 
 import am.froshy.mialu.launcher.config.LauncherConfig;
+import am.froshy.mialu.launcher.config.LauncherSettings;
 import am.froshy.mialu.launcher.domain.DownloadStatus;
 import am.froshy.mialu.launcher.domain.LaunchRequest;
 import am.froshy.mialu.launcher.domain.LaunchResult;
+import am.froshy.mialu.launcher.domain.MicrosoftBrowserLogin;
+import am.froshy.mialu.launcher.domain.MicrosoftDeviceCode;
+import am.froshy.mialu.launcher.domain.MicrosoftSessionStatus;
 import am.froshy.mialu.launcher.domain.MinecraftProfile;
 import am.froshy.mialu.launcher.domain.ModpackManifest;
 import am.froshy.mialu.launcher.domain.PreparedLaunchStatus;
+import am.froshy.mialu.launcher.infrastructure.MicrosoftAuthStore;
 import am.froshy.mialu.launcher.infrastructure.ProfileStore;
+import am.froshy.mialu.launcher.infrastructure.SettingsStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -38,6 +45,9 @@ public final class LauncherService {
     private final ProfileStore profileStore;
     private final MinecraftVersionDownloader versionDownloader;
     private final ModpackInstaller modpackInstaller;
+    private final MicrosoftAuthService microsoftAuthService;
+    private final SettingsStore settingsStore;
+    private volatile LauncherSettings launcherSettings;
     private volatile ModpackCompatibilityMode modpackCompatibilityMode;
 
     private final Map<String, MinecraftProfile> profiles         = new ConcurrentHashMap<>();
@@ -63,34 +73,63 @@ public final class LauncherService {
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore) {
         this(config, profileStore, new MojangVersionDownloader(), new ModpackInstaller(),
-                ModpackCompatibilityMode.fromEnvironment(readModpackCompatEnv()));
+                ModpackCompatibilityMode.fromEnvironment(readModpackCompatEnv()),
+                defaultMicrosoftAuthService(config),
+                defaultSettingsStore(config));
     }
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore,
                            MinecraftVersionDownloader versionDownloader) {
         this(config, profileStore, versionDownloader, new ModpackInstaller(),
-                ModpackCompatibilityMode.fromEnvironment(readModpackCompatEnv()));
+                ModpackCompatibilityMode.fromEnvironment(readModpackCompatEnv()),
+                defaultMicrosoftAuthService(config),
+                defaultSettingsStore(config));
     }
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore,
                            MinecraftVersionDownloader versionDownloader,
                            ModpackInstaller modpackInstaller) {
         this(config, profileStore, versionDownloader, modpackInstaller,
-                ModpackCompatibilityMode.fromEnvironment(readModpackCompatEnv()));
+                ModpackCompatibilityMode.fromEnvironment(readModpackCompatEnv()),
+                defaultMicrosoftAuthService(config),
+                defaultSettingsStore(config));
     }
 
     public LauncherService(LauncherConfig config, ProfileStore profileStore,
                            MinecraftVersionDownloader versionDownloader,
                            ModpackInstaller modpackInstaller,
                            ModpackCompatibilityMode modpackCompatibilityMode) {
+        this(config, profileStore, versionDownloader, modpackInstaller, modpackCompatibilityMode,
+                defaultMicrosoftAuthService(config),
+                defaultSettingsStore(config));
+    }
+
+    public LauncherService(LauncherConfig config, ProfileStore profileStore,
+                           MinecraftVersionDownloader versionDownloader,
+                           ModpackInstaller modpackInstaller,
+                           ModpackCompatibilityMode modpackCompatibilityMode,
+                           MicrosoftAuthService microsoftAuthService) {
+        this(config, profileStore, versionDownloader, modpackInstaller, modpackCompatibilityMode,
+                microsoftAuthService, defaultSettingsStore(config));
+    }
+
+    public LauncherService(LauncherConfig config, ProfileStore profileStore,
+                           MinecraftVersionDownloader versionDownloader,
+                           ModpackInstaller modpackInstaller,
+                           ModpackCompatibilityMode modpackCompatibilityMode,
+                           MicrosoftAuthService microsoftAuthService,
+                           SettingsStore settingsStore) {
         this.config            = config;
         this.profileStore      = profileStore;
         this.versionDownloader = versionDownloader;
         this.modpackInstaller  = modpackInstaller;
+        this.microsoftAuthService = microsoftAuthService;
+        this.settingsStore = settingsStore;
+        this.launcherSettings = settingsStore.load();
         this.modpackCompatibilityMode = modpackCompatibilityMode == null
                 ? ModpackCompatibilityMode.BOTH
                 : modpackCompatibilityMode;
-        profileStore.load().forEach(p -> profiles.put(p.id(), p));
+        loadProfilesWithNormalizedIds();
     }
 
     // ── Perfiles ─────────────────────────────────────────────────────────
@@ -100,12 +139,14 @@ public final class LauncherService {
     }
 
     public MinecraftProfile createProfile(MinecraftProfile profile) {
-        if (profiles.containsKey(profile.id()))
-            throw new IllegalArgumentException("Ya existe un perfil con id: " + profile.id());
-        ensureProfileInstanceDirectory(profile);
-        profiles.put(profile.id(), profile);
+        String id = profileIdFromDisplayName(profile.displayName());
+        MinecraftProfile normalized = withId(profile, id);
+        if (profiles.containsKey(id))
+            throw new IllegalArgumentException("Ya existe un perfil con nombre/id: " + id);
+        ensureProfileInstanceDirectory(normalized);
+        profiles.put(id, normalized);
         profileStore.save(profiles.values());
-        return profile;
+        return normalized;
     }
 
     public MinecraftProfile updateProfile(String existingId, MinecraftProfile changes) {
@@ -116,9 +157,13 @@ public final class LauncherService {
             throw new IllegalArgumentException("Perfil no encontrado: " + existingId);
         }
 
-        // En modo edicion, la ID del formulario se ignora y se conserva la original.
+        String updatedId = profileIdFromDisplayName(changes.displayName());
+        if (!existingId.equals(updatedId) && profiles.containsKey(updatedId)) {
+            throw new IllegalArgumentException("Ya existe otro perfil con nombre/id: " + updatedId);
+        }
+
         MinecraftProfile updated = new MinecraftProfile(
-                existingId,
+                updatedId,
                 changes.displayName(),
                 changes.javaPath(),
                 changes.gameVersion(),
@@ -129,8 +174,13 @@ public final class LauncherService {
                 changes.modpackPath()
         );
 
+        if (!existingId.equals(updatedId)) {
+            moveProfileInstanceDirectory(existingId, updatedId);
+            profiles.remove(existingId);
+        }
         ensureProfileInstanceDirectory(updated);
-        profiles.put(existingId, updated);
+        profiles.put(updatedId, updated);
+        remapActiveProcesses(existingId, updatedId);
         profileStore.save(profiles.values());
         return updated;
     }
@@ -171,8 +221,11 @@ public final class LauncherService {
     private LaunchResult launchWithVersion(LaunchRequest request, MinecraftProfile profile,
                                            String effectiveVersion, Path gameDir) {
 
-        // Extraer username de los gameArgs del perfil (--username <valor>)
-        String username = extractUsername(profile);
+        LauncherSettings currentSettings = launcherSettings;
+        MicrosoftAuthService.LaunchAuth launchAuth = currentSettings.preferPremiumLogin()
+                ? microsoftAuthService.resolveLaunchAuth().orElse(null)
+                : null;
+        String username = launchAuth != null ? launchAuth.playerName() : sanitizeGlobalUsername(currentSettings.globalUsername());
 
         // Construir instalación (classpath, mainClass, args resueltos)
         VersionInstallation install;
@@ -194,7 +247,7 @@ public final class LauncherService {
         // Main class
         cmd.add(install.mainClass());
         // Game arguments
-        cmd.addAll(install.gameArguments());
+        cmd.addAll(applyLaunchIdentity(install.gameArguments(), username, launchAuth));
         // Demo mode
         if (request.demoMode()) cmd.add("--demo");
 
@@ -408,6 +461,54 @@ public final class LauncherService {
         MinecraftProfile profile = Optional.ofNullable(profiles.get(profileId))
                 .orElseThrow(() -> new IllegalArgumentException("Perfil no encontrado: " + profileId));
         return ensureProfileInstanceDirectory(profile).toAbsolutePath().toString();
+    }
+
+    public MicrosoftDeviceCode startMicrosoftDeviceLogin() {
+        return microsoftAuthService.startDeviceLogin();
+    }
+
+    public MicrosoftSessionStatus completeMicrosoftDeviceLogin(String deviceCode) {
+        return microsoftAuthService.completeDeviceLogin(deviceCode);
+    }
+
+    public MicrosoftBrowserLogin startMicrosoftBrowserLogin() {
+        return microsoftAuthService.startBrowserLogin();
+    }
+
+    public MicrosoftSessionStatus completeMicrosoftBrowserLogin(String operationId) {
+        return microsoftAuthService.completeBrowserLogin(operationId);
+    }
+
+    public String handleMicrosoftBrowserCallback(String state, String code, String error, String errorDescription) {
+        return microsoftAuthService.handleBrowserCallback(state, code, error, errorDescription);
+    }
+
+    public MicrosoftSessionStatus getMicrosoftSessionStatus() {
+        return microsoftAuthService.getSessionStatus();
+    }
+
+    public MicrosoftSessionStatus logoutMicrosoftSession() {
+        microsoftAuthService.logout();
+        return microsoftAuthService.getSessionStatus();
+    }
+
+    public Map<String, Object> getGlobalUserSettings() {
+        LauncherSettings current = launcherSettings;
+        MicrosoftSessionStatus premium = microsoftAuthService.getSessionStatus();
+        return Map.of(
+                "username", current.globalUsername(),
+                "preferPremium", current.preferPremiumLogin(),
+                "premiumConnected", premium.connected(),
+                "premiumPlayer", premium.playerName()
+        );
+    }
+
+    public Map<String, Object> updateGlobalUserSettings(String username, boolean preferPremium) {
+        String sanitized = sanitizeGlobalUsername(username);
+        LauncherSettings updated = launcherSettings.withGlobalUser(sanitized, preferPremium);
+        settingsStore.save(updated);
+        launcherSettings = updated;
+        return getGlobalUserSettings();
     }
 
     public void shutdown() {
@@ -637,6 +738,142 @@ public final class LauncherService {
     private Path profileGameDirectory(MinecraftProfile profile) {
         String safeId = profile.id().replaceAll("[^a-zA-Z0-9._-]", "_");
         return config.gameDirectory().resolve("instances").resolve(safeId);
+    }
+
+    private void loadProfilesWithNormalizedIds() {
+        List<MinecraftProfile> loaded = profileStore.load();
+        boolean changed = false;
+        for (MinecraftProfile p : loaded) {
+            String baseId = profileIdFromDisplayName(p.displayName());
+            String resolvedId = uniqueProfileId(baseId);
+            MinecraftProfile normalized = withId(p, resolvedId);
+            if (!resolvedId.equals(p.id())) {
+                moveProfileInstanceDirectory(p.id(), resolvedId);
+            }
+            profiles.put(normalized.id(), normalized);
+            changed = changed || !resolvedId.equals(p.id());
+        }
+        if (changed) {
+            profileStore.save(profiles.values());
+        }
+    }
+
+    private String uniqueProfileId(String baseId) {
+        if (!profiles.containsKey(baseId)) {
+            return baseId;
+        }
+        int i = 2;
+        while (profiles.containsKey(baseId + "_" + i)) {
+            i++;
+        }
+        return baseId + "_" + i;
+    }
+
+    private static MinecraftProfile withId(MinecraftProfile profile, String id) {
+        return new MinecraftProfile(
+                id,
+                profile.displayName(),
+                profile.javaPath(),
+                profile.gameVersion(),
+                profile.jvmArgs(),
+                profile.gameArgs(),
+                profile.loaderType(),
+                profile.loaderVersion(),
+                profile.modpackPath()
+        );
+    }
+
+    private static String profileIdFromDisplayName(String displayName) {
+        if (displayName == null || displayName.isBlank()) {
+            throw new IllegalArgumentException("El nombre del perfil es obligatorio");
+        }
+        String normalized = displayName.trim()
+                .replaceAll("\\s+", "_")
+                .replaceAll("[^A-Za-z0-9._-]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_+|_+$", "")
+                .toLowerCase();
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("El nombre del perfil no genera un id valido");
+        }
+        return normalized;
+    }
+
+    private static String sanitizeGlobalUsername(String username) {
+        String raw = username == null ? "" : username.trim();
+        if (!raw.matches("^[A-Za-z0-9_]{3,16}$")) {
+            return "Steve";
+        }
+        return raw;
+    }
+
+    private List<String> applyLaunchIdentity(List<String> gameArgs, String username,
+                                             MicrosoftAuthService.LaunchAuth launchAuth) {
+        List<String> result = new ArrayList<>(gameArgs == null ? List.of() : gameArgs);
+        upsertGameArg(result, "--username", username);
+
+        if (launchAuth == null) {
+            upsertGameArg(result, "--userType", "offline");
+            return result;
+        }
+
+        upsertGameArg(result, "--uuid", launchAuth.playerUuid());
+        upsertGameArg(result, "--accessToken", launchAuth.accessToken());
+        upsertGameArg(result, "--userType", "msa");
+        if (launchAuth.xuid() != null && !launchAuth.xuid().isBlank()) {
+            upsertGameArg(result, "--xuid", launchAuth.xuid());
+        }
+        return result;
+    }
+
+    private static void upsertGameArg(List<String> args, String key, String value) {
+        for (int i = 0; i < args.size() - 1; i++) {
+            if (key.equals(args.get(i))) {
+                args.set(i + 1, value);
+                return;
+            }
+        }
+        args.add(key);
+        args.add(value);
+    }
+
+    private void moveProfileInstanceDirectory(String oldId, String newId) {
+        Path oldDir = config.gameDirectory().resolve("instances").resolve(oldId.replaceAll("[^a-zA-Z0-9._-]", "_"));
+        Path newDir = config.gameDirectory().resolve("instances").resolve(newId.replaceAll("[^a-zA-Z0-9._-]", "_"));
+        if (!Files.exists(oldDir) || oldDir.equals(newDir)) {
+            return;
+        }
+        if (Files.exists(newDir)) {
+            throw new IllegalStateException("Ya existe una instancia para el nuevo id: " + newId);
+        }
+        try {
+            Files.createDirectories(newDir.getParent());
+            Files.move(oldDir, newDir);
+        } catch (IOException ex) {
+            throw new IllegalStateException("No se pudo renombrar la instancia del perfil", ex);
+        }
+    }
+
+    private void remapActiveProcesses(String oldId, String newId) {
+        if (oldId.equals(newId)) {
+            return;
+        }
+        activeProcessProfiles.replaceAll((launchId, profileId) -> oldId.equals(profileId) ? newId : profileId);
+    }
+
+    private static MicrosoftAuthService defaultMicrosoftAuthService(LauncherConfig config) {
+        return new MicrosoftAuthService(
+                config,
+                new MicrosoftAuthStore(config.baseDirectory().resolve("microsoft-auth.json"),
+                        new ObjectMapper().findAndRegisterModules())
+        );
+    }
+
+    private static SettingsStore defaultSettingsStore(LauncherConfig config) {
+        return new SettingsStore(
+                config.baseDirectory().resolve("settings.json"),
+                new ObjectMapper().findAndRegisterModules()
+        );
     }
 
     private Path ensureProfileInstanceDirectory(MinecraftProfile profile) {
