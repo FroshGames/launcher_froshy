@@ -65,7 +65,7 @@ public final class InternalApiServer {
         server.createContext("/internal/v1/settings/user", exchange -> withErrorHandling(exchange, this::handleUserSettings));
         server.createContext("/internal/v1/auth/microsoft/login/start", exchange -> withErrorHandling(exchange, this::handleMicrosoftLoginStart));
         server.createContext("/internal/v1/auth/microsoft/login/complete", exchange -> withErrorHandling(exchange, this::handleMicrosoftLoginComplete));
-        server.createContext("/internal/v1/auth/microsoft/callback", this::handleMicrosoftCallback);
+        server.createContext("/", this::handleMicrosoftCallback);
         server.createContext("/internal/v1/auth/microsoft/device/start", exchange -> withErrorHandling(exchange, this::handleMicrosoftDeviceStart));
         server.createContext("/internal/v1/auth/microsoft/device/complete", exchange -> withErrorHandling(exchange, this::handleMicrosoftDeviceComplete));
         server.createContext("/internal/v1/auth/microsoft/session", exchange -> withErrorHandling(exchange, this::handleMicrosoftSession));
@@ -317,7 +317,16 @@ public final class InternalApiServer {
                 return;
             }
 
-            Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
+            String path = exchange.getRequestURI().getPath();
+            String rawQuery = exchange.getRequestURI().getRawQuery();
+            boolean oauthCallback = "/".equals(path) && rawQuery != null
+                    && (rawQuery.contains("code=") || rawQuery.contains("error=") || rawQuery.contains("state="));
+            if (!oauthCallback) {
+                sendHtml(exchange, 200, "<html><body><h3>Launcher_Mialu API</h3><p>Servicio activo.</p></body></html>");
+                return;
+            }
+
+            Map<String, String> query = parseQuery(rawQuery);
             String html = launcherService.handleMicrosoftBrowserCallback(
                     query.get("state"),
                     query.get("code"),

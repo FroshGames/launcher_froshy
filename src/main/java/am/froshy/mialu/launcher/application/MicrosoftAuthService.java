@@ -62,7 +62,7 @@ public final class MicrosoftAuthService {
         this.mapper = new ObjectMapper().findAndRegisterModules();
         this.store = store;
         this.clientId = readClientId();
-        this.redirectUri = "http://localhost:" + config.internalApiPort() + "/internal/v1/auth/microsoft/callback";
+        this.redirectUri = "http://localhost:" + config.internalApiPort();
         this.session = store.load().orElse(null);
     }
 
