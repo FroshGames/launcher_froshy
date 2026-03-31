@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.function.BiConsumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -133,7 +134,72 @@ class InternalApiClientTest {
 
             client.deleteProfile("builder");
             assertEquals(0, client.listProfiles().size());
-            assertTrue(!Files.exists(Path.of(instancePath)));
+            assertFalse(Files.exists(Path.of(instancePath)));
+        } finally {
+            server.stop();
+        }
+    }
+
+    @Test
+    void shouldSupportProfileIdsWithSpacesAndSlashes() {
+        LauncherConfig config = new LauncherConfig(
+                tempDir,
+                tempDir.resolve("profiles.json"),
+                tempDir.resolve("game"),
+                0,
+                "1.0-SNAPSHOT",
+                ""
+        );
+        LauncherService service = new LauncherService(
+                config,
+                new ProfileStore(config.profilesFile(), new ObjectMapper()),
+                FAKE_DOWNLOADER
+        );
+        LauncherUpdateService updateService = new LauncherUpdateService(config.launcherVersion(), config.updatesMetadataUrl());
+        InternalApiServer server = new InternalApiServer(0, service, updateService);
+        server.start();
+
+        try {
+            InternalApiClient client = new InternalApiClient(URI.create("http://localhost:" + server.getPort() + "/internal/v1"));
+            String profileId = "perfil con espacios/slash";
+
+            MinecraftProfile created = client.createProfile(new MinecraftProfile(
+                    profileId,
+                    "Perfil especial",
+                    "java",
+                    "1.20.1",
+                    List.of("-Xmx2G"),
+                    List.of("--username", "Alex"),
+                    "VANILLA",
+                    "",
+                    ""
+            ));
+
+            assertEquals(profileId, created.id());
+            assertEquals(profileId, client.listProfiles().get(0).id());
+
+            String instancePath = client.getProfileInstancePath(profileId);
+            assertTrue(Files.isDirectory(Path.of(instancePath)));
+            assertEquals("perfil_con_espacios_slash", Path.of(instancePath).getFileName().toString());
+
+            MinecraftProfile updated = client.updateProfile(profileId, new MinecraftProfile(
+                    "otro-id",
+                    "Perfil especial editado",
+                    "java",
+                    "1.20.1",
+                    List.of("-Xmx3G"),
+                    List.of("--username", "Alex"),
+                    "VANILLA",
+                    "",
+                    ""
+            ));
+
+            assertEquals(profileId, updated.id());
+            assertEquals("Perfil especial editado", updated.displayName());
+
+            client.deleteProfile(profileId);
+            assertTrue(client.listProfiles().isEmpty());
+            assertFalse(Files.exists(Path.of(instancePath)));
         } finally {
             server.stop();
         }

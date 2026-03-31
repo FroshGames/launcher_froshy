@@ -11,9 +11,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -45,15 +47,15 @@ public final class InternalApiClient {
     }
 
     public MinecraftProfile updateProfile(String existingId, MinecraftProfile profile) {
-        return send("profiles/" + existingId, "PUT", profile, new TypeReference<>() {});
+        return send("profiles/" + encodePathSegment(existingId), "PUT", profile, new TypeReference<>() {});
     }
 
     public void deleteProfile(String profileId) {
-        send("profiles/" + profileId, "DELETE", null, new TypeReference<Map<String, Object>>() {});
+        send("profiles/" + encodePathSegment(profileId), "DELETE", null, new TypeReference<Map<String, Object>>() {});
     }
 
     public String getProfileInstancePath(String profileId) {
-        Map<String, Object> response = send("profiles/" + profileId + "/instance-path", "GET", null, new TypeReference<>() {});
+        Map<String, Object> response = send("profiles/" + encodePathSegment(profileId) + "/instance-path", "GET", null, new TypeReference<>() {});
         Object instancePath = response.get("instancePath");
         return instancePath == null ? "" : instancePath.toString();
     }
@@ -71,7 +73,7 @@ public final class InternalApiClient {
     }
 
     public PreparedLaunchStatus getLaunchPreparedStatus(String operationId) {
-        return send("launch-prepared/" + operationId, "GET", null, new TypeReference<>() {});
+        return send("launch-prepared/" + encodePathSegment(operationId), "GET", null, new TypeReference<>() {});
     }
 
     public DownloadStatus startDownload(String target) {
@@ -79,11 +81,19 @@ public final class InternalApiClient {
     }
 
     public DownloadStatus getDownloadStatus(String downloadId) {
-        return send("downloads/" + downloadId, "GET", null, new TypeReference<>() {});
+        return send("downloads/" + encodePathSegment(downloadId), "GET", null, new TypeReference<>() {});
     }
 
     public LauncherUpdateStatus checkUpdates() {
-        return send("updates/check", "GET", null, new TypeReference<>() {});
+        return checkUpdatesManual();
+    }
+
+    public LauncherUpdateStatus checkUpdatesManual() {
+        return send("updates/check?trigger=MANUAL", "GET", null, new TypeReference<>() {});
+    }
+
+    public LauncherUpdateStatus checkUpdatesWeekly() {
+        return send("updates/check?trigger=WEEKLY", "GET", null, new TypeReference<>() {});
     }
 
     public DownloadStatus prepareVersion(String version) {
@@ -103,11 +113,11 @@ public final class InternalApiClient {
     }
 
     public Map<String, Object> getGameOutput(String launchId, int fromIndex) {
-        return send("launch/" + launchId + "/output?from=" + fromIndex, "GET", null, new TypeReference<>() {});
+        return send("launch/" + encodePathSegment(launchId) + "/output?from=" + fromIndex, "GET", null, new TypeReference<>() {});
     }
 
     public boolean isGameAlive(String launchId) {
-        Map<String, Object> res = send("launch/" + launchId + "/alive", "GET", null, new TypeReference<>() {});
+        Map<String, Object> res = send("launch/" + encodePathSegment(launchId) + "/alive", "GET", null, new TypeReference<>() {});
         return Boolean.TRUE.equals(res.get("alive"));
     }
 
@@ -137,8 +147,16 @@ public final class InternalApiClient {
             return builder.GET().build();
         }
 
+        if (body == null) {
+            return builder.method(method, HttpRequest.BodyPublishers.noBody()).build();
+        }
+
         byte[] payload = objectMapper.writeValueAsBytes(body);
         return builder.method(method, HttpRequest.BodyPublishers.ofByteArray(payload)).build();
+    }
+
+    private String encodePathSegment(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 }
 

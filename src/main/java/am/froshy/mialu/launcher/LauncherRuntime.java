@@ -5,6 +5,7 @@ import am.froshy.mialu.launcher.application.LauncherService;
 import am.froshy.mialu.launcher.application.LauncherUpdateService;
 import am.froshy.mialu.launcher.config.LauncherConfig;
 import am.froshy.mialu.launcher.infrastructure.ProfileStore;
+import am.froshy.mialu.launcher.infrastructure.SettingsStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.URI;
@@ -23,7 +24,13 @@ public final class LauncherRuntime {
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
         LauncherService launcherService = new LauncherService(config, new ProfileStore(config.profilesFile(), objectMapper));
-        LauncherUpdateService updateService = new LauncherUpdateService(config.launcherVersion(), config.updatesMetadataUrl());
+        SettingsStore settingsStore = new SettingsStore(config.baseDirectory().resolve("settings.json"), objectMapper);
+        LauncherUpdateService updateService = new LauncherUpdateService(
+                config.launcherVersion(),
+                config.updatesMetadataUrl(),
+                config.baseDirectory().resolve("updates"),
+                settingsStore
+        );
         InternalApiServer apiServer = new InternalApiServer(config.internalApiPort(), launcherService, updateService);
         apiServer.start();
 

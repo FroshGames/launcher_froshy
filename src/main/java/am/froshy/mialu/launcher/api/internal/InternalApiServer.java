@@ -13,6 +13,9 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -71,7 +74,7 @@ public final class InternalApiServer {
     }
 
     private void handleProfiles(HttpExchange exchange) throws IOException {
-        String path = exchange.getRequestURI().getPath();
+        String path = exchange.getRequestURI().getRawPath();
         String method = exchange.getRequestMethod();
         String basePath = "/internal/v1/profiles";
 
@@ -87,13 +90,13 @@ public final class InternalApiServer {
         }
 
         if ("GET".equalsIgnoreCase(method) && path.startsWith(basePath + "/") && path.endsWith("/instance-path")) {
-            String profileId = path.substring((basePath + "/").length(), path.length() - "/instance-path".length());
+            String profileId = decodeUrlComponent(path.substring((basePath + "/").length(), path.length() - "/instance-path".length()));
             sendJson(exchange, 200, Map.of("instancePath", launcherService.getProfileInstancePath(profileId)));
             return;
         }
 
         if ("PUT".equalsIgnoreCase(method) && path.startsWith(basePath + "/")) {
-            String existingId = path.substring((basePath + "/").length());
+            String existingId = decodeUrlComponent(path.substring((basePath + "/").length()));
             MinecraftProfile profile = readBody(exchange, MinecraftProfile.class);
             MinecraftProfile updated = launcherService.updateProfile(existingId, profile);
             sendJson(exchange, 200, updated);
@@ -101,7 +104,7 @@ public final class InternalApiServer {
         }
 
         if ("DELETE".equalsIgnoreCase(method) && path.startsWith(basePath + "/")) {
-            String profileId = path.substring((basePath + "/").length());
+            String profileId = decodeUrlComponent(path.substring((basePath + "/").length()));
             MinecraftProfile deleted = launcherService.deleteProfile(profileId);
             sendJson(exchange, 200, deleted);
             return;
@@ -111,7 +114,7 @@ public final class InternalApiServer {
     }
 
     private void handleLaunch(HttpExchange exchange) throws IOException {
-        String path   = exchange.getRequestURI().getPath();
+        String path   = exchange.getRequestURI().getRawPath();
         String method = exchange.getRequestMethod();
 
         // POST /internal/v1/launch  → iniciar juego
@@ -124,7 +127,7 @@ public final class InternalApiServer {
         // GET /internal/v1/launch/{id}/output?from=N  → líneas de output
         if ("GET".equalsIgnoreCase(method) && path.endsWith("/output")) {
             String id = extractSegment(path, "/output");
-            int fromIndex = parseQueryInt(exchange.getRequestURI().getQuery(), "from", 0);
+            int fromIndex = parseQueryInt(exchange.getRequestURI().getRawQuery(), "from", 0);
             sendJson(exchange, 200, launcherService.getGameOutput(id, fromIndex));
             return;
         }
@@ -141,16 +144,26 @@ public final class InternalApiServer {
 
     private static String extractSegment(String path, String suffix) {
         String base = "/internal/v1/launch/";
-        String mid  = path.substring(base.length(), path.length() - suffix.length());
-        return mid;
+        return decodeUrlComponent(path.substring(base.length(), path.length() - suffix.length()));
     }
 
     private static int parseQueryInt(String query, String key, int defaultVal) {
         if (query == null) return defaultVal;
         for (String param : query.split("&")) {
             if (param.startsWith(key + "=")) {
-                try { return Integer.parseInt(param.substring(key.length() + 1)); }
+                try { return Integer.parseInt(decodeUrlComponent(param.substring(key.length() + 1))); }
                 catch (NumberFormatException ignored) {}
+            }
+        }
+        return defaultVal;
+    }
+
+    private static String parseQueryString(String query, String key, String defaultVal) {
+        if (query == null || query.isBlank()) return defaultVal;
+        for (String param : query.split("&")) {
+            if (param.startsWith(key + "=")) {
+                String value = decodeUrlComponent(param.substring(key.length() + 1));
+                return value.isBlank() ? defaultVal : value;
             }
         }
         return defaultVal;
@@ -158,7 +171,7 @@ public final class InternalApiServer {
 
     private void handleLaunchPrepared(HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
-        String path = exchange.getRequestURI().getPath();
+        String path = exchange.getRequestURI().getRawPath();
 
         if ("POST".equalsIgnoreCase(method) && "/internal/v1/launch-prepared".equals(path)) {
             LaunchRequest request = readBody(exchange, LaunchRequest.class);
@@ -167,7 +180,7 @@ public final class InternalApiServer {
         }
 
         if ("GET".equalsIgnoreCase(method) && path.startsWith("/internal/v1/launch-prepared/")) {
-            String opId = path.substring("/internal/v1/launch-prepared/".length());
+            String opId = decodeUrlComponent(path.substring("/internal/v1/launch-prepared/".length()));
             launcherService.getPreparedLaunchStatus(opId)
                     .ifPresentOrElse(
                             status -> sendJsonUnchecked(exchange, 200, status),
@@ -190,7 +203,7 @@ public final class InternalApiServer {
 
     private void handleDownloads(HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
-        String fullPath = exchange.getRequestURI().getPath();
+        String fullPath = exchange.getRequestURI().getRawPath();
         String basePath = "/internal/v1/downloads";
 
         if ("POST".equalsIgnoreCase(method) && basePath.equals(fullPath)) {
@@ -200,7 +213,7 @@ public final class InternalApiServer {
         }
 
         if ("GET".equalsIgnoreCase(method) && fullPath.startsWith(basePath + "/")) {
-            String id = fullPath.substring((basePath + "/").length());
+            String id = decodeUrlComponent(fullPath.substring((basePath + "/").length()));
             launcherService.getDownloadStatus(id)
                     .ifPresentOrElse(
                             status -> sendJsonUnchecked(exchange, 200, status),
@@ -217,7 +230,9 @@ public final class InternalApiServer {
             sendMethodNotAllowed(exchange, List.of("GET"));
             return;
         }
-        sendJson(exchange, 200, updateService.checkForUpdates());
+        String trigger = parseQueryString(exchange.getRequestURI().getQuery(), "trigger", "MANUAL");
+        boolean manual = !"WEEKLY".equalsIgnoreCase(trigger.toUpperCase(Locale.ROOT));
+        sendJson(exchange, 200, updateService.checkForUpdates(manual));
     }
 
     private void handlePrepareVersion(HttpExchange exchange) throws IOException {
@@ -256,6 +271,10 @@ public final class InternalApiServer {
         }
 
         sendMethodNotAllowed(exchange, List.of("GET", "POST"));
+    }
+
+    private static String decodeUrlComponent(String value) {
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
     private <T> T readBody(HttpExchange exchange, Class<T> type) throws IOException {

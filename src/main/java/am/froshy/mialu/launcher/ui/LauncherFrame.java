@@ -65,6 +65,7 @@ public final class LauncherFrame extends JFrame {
     private final JLabel phaseLbl = new JLabel("IDLE");
     private final JLabel healthLbl = new JLabel("\u25CF API");
     private final JLabel updateLbl = new JLabel("");
+    private final JTextArea settingsUpdateArea = new JTextArea();
     // Estado del juego en ejecución
     private volatile boolean         gameRunning     = false;
     private volatile String          currentLaunchId = null;
@@ -88,7 +89,7 @@ public final class LauncherFrame extends JFrame {
         buildUi();
         refreshProfiles();
         refreshHealth();
-        refreshUpdates();
+        maybeRefreshUpdatesWeekly();
     }
     private void buildUi() {
         setUndecorated(true);
@@ -228,6 +229,7 @@ public final class LauncherFrame extends JFrame {
         contentStack.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
         contentStack.add(buildHomeCard(),     "HOME");
         contentStack.add(buildProfilesCard(), "PROFILES");
+        contentStack.add(buildSettingsCard(), "SETTINGS");
         contentStack.add(buildConsoleCard(),  "CONSOLE");
         contentCards.show(contentStack, "HOME");
         outer.add(header,           BorderLayout.NORTH);
@@ -440,6 +442,48 @@ public final class LauncherFrame extends JFrame {
         loadModpackCompatibility();
         return panel;
     }
+    private JPanel buildSettingsCard() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10)); panel.setOpaque(false);
+        panel.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+
+        JLabel title = new JLabel("AJUSTES Y ACTUALIZACIONES");
+        title.setFont(new Font("Dialog", Font.BOLD, 13)); title.setForeground(C_CYAN);
+
+        settingsUpdateArea.setEditable(false);
+        settingsUpdateArea.setLineWrap(true);
+        settingsUpdateArea.setWrapStyleWord(true);
+        settingsUpdateArea.setOpaque(true);
+        settingsUpdateArea.setBackground(new Color(0x08, 0x08, 0x1e));
+        settingsUpdateArea.setForeground(C_TEXT);
+        settingsUpdateArea.setCaretColor(C_TEXT);
+        settingsUpdateArea.setFont(new Font("Dialog", Font.PLAIN, 11));
+        settingsUpdateArea.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(C_BORDER, 1),
+                BorderFactory.createEmptyBorder(10, 10, 10, 10)
+        ));
+        settingsUpdateArea.setText("Repositorio vinculado: FroshGames/launcher_froshy\n"
+                + "Comprobación automática: una vez por semana al abrir el launcher.\n"
+                + "Pulsa 'Buscar actualizaciones' para revisar releases y descargar el package nuevo automáticamente.");
+
+        JScrollPane scroll = new JScrollPane(settingsUpdateArea);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getViewport().setBackground(new Color(0x08, 0x08, 0x1e));
+
+        JButton checkUpdatesBtn = buildNeonBtn("BUSCAR ACTUALIZACIONES", C_CYAN, 270, 36);
+        checkUpdatesBtn.addActionListener(e -> refreshUpdates(true, true));
+        JButton consoleBtn = buildNeonBtn("VER CONSOLA", C_BORDER, 150, 30);
+        consoleBtn.addActionListener(e -> contentCards.show(contentStack, "CONSOLE"));
+
+        JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        btnRow.setOpaque(false);
+        btnRow.add(checkUpdatesBtn);
+        btnRow.add(consoleBtn);
+
+        panel.add(title, BorderLayout.NORTH);
+        panel.add(scroll, BorderLayout.CENTER);
+        panel.add(btnRow, BorderLayout.SOUTH);
+        return panel;
+    }
     private JPanel buildConsoleCard() {
         JPanel panel = new JPanel(new BorderLayout(6, 6)); panel.setOpaque(false);
         panel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
@@ -470,7 +514,7 @@ public final class LauncherFrame extends JFrame {
         panel.setOpaque(false); panel.setPreferredSize(new Dimension(110, 0));
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.add(Box.createVerticalStrut(10));
-        panel.add(makeIconBtn("\u2699", "SETTINGS", e -> {}));
+        panel.add(makeIconBtn("\u2699", "SETTINGS", e -> contentCards.show(contentStack, "SETTINGS")));
         panel.add(Box.createVerticalStrut(10));
         panel.add(makeIconBtn("\u25CE", "PROFILE",  e -> contentCards.show(contentStack, "PROFILES")));
         panel.add(Box.createVerticalGlue());
@@ -614,19 +658,83 @@ public final class LauncherFrame extends JFrame {
             });
         });
     }
-    private void refreshUpdates() {
+    private void maybeRefreshUpdatesWeekly() {
+        refreshUpdates(false, false);
+    }
+
+    private void refreshUpdates(boolean manualTrigger, boolean showDialog) {
         runAsync(() -> {
-            LauncherUpdateStatus status = apiClient.checkUpdates();
-            SwingUtilities.invokeLater(() -> {
-                if ("UPDATE_AVAILABLE".equals(status.state())) {
-                    updateLbl.setText("\u2191 Update: " + status.latestVersion());
-                    updateLbl.setForeground(new Color(0xff, 0xcc, 0x00));
-                } else {
-                    updateLbl.setText("\u2713 v" + status.currentVersion());
-                    updateLbl.setForeground(C_DIM);
-                }
-            });
+            LauncherUpdateStatus status = manualTrigger ? apiClient.checkUpdatesManual() : apiClient.checkUpdatesWeekly();
+            SwingUtilities.invokeLater(() -> applyUpdateStatus(status, manualTrigger, showDialog));
         });
+    }
+
+    private void applyUpdateStatus(LauncherUpdateStatus status, boolean manualTrigger, boolean showDialog) {
+        if (status == null) {
+            updateLbl.setText("! update");
+            updateLbl.setForeground(new Color(0xff, 0x66, 0x66));
+            settingsUpdateArea.setText("No se pudo obtener el estado de actualizaciones.");
+            return;
+        }
+
+        String state = status.state() == null ? "" : status.state();
+        if ("UPDATE_AVAILABLE".equals(state) || "UPDATE_DOWNLOADED".equals(state)) {
+            updateLbl.setText("\u2191 Update: " + status.latestVersion());
+            updateLbl.setForeground(new Color(0xff, 0xcc, 0x00));
+        } else if ("CHECK_FAILED".equals(state)) {
+            updateLbl.setText("! update");
+            updateLbl.setForeground(new Color(0xff, 0x66, 0x66));
+        } else {
+            updateLbl.setText("\u2713 v" + status.currentVersion());
+            updateLbl.setForeground(C_DIM);
+        }
+
+        StringBuilder text = new StringBuilder();
+        text.append("Repositorio vinculado: FroshGames/launcher_froshy\n");
+        text.append("Estado: ").append(describeUpdateState(state)).append("\n");
+        text.append("Versión actual: ").append(status.currentVersion()).append("\n");
+        text.append("Última versión detectada: ").append(status.latestVersion()).append("\n");
+        if (status.checkedAt() != null && !status.checkedAt().isBlank()) {
+            text.append("Última comprobación: ").append(status.checkedAt()).append("\n");
+        }
+        if (status.downloadedAssetName() != null && !status.downloadedAssetName().isBlank()) {
+            text.append("Package descargado: ").append(status.downloadedAssetName()).append("\n");
+        }
+        if (status.downloadedFile() != null && !status.downloadedFile().isBlank()) {
+            text.append("Ruta descargada: ").append(status.downloadedFile()).append("\n");
+        }
+        if (status.notes() != null && !status.notes().isBlank()) {
+            text.append("Notas: ").append(status.notes());
+        }
+        settingsUpdateArea.setText(text.toString());
+
+        if (!"SKIPPED".equals(state)) {
+            appendOutput("[Updates] " + describeUpdateState(state) + ": " + status.latestVersion());
+        }
+
+        if (manualTrigger && showDialog) {
+            String message = switch (state) {
+                case "UPDATE_DOWNLOADED" -> "Se descargó automáticamente el package nuevo en:\n" + status.downloadedFile();
+                case "UP_TO_DATE" -> "No hay actualizaciones. Ya estás en la versión más reciente.";
+                case "CHECK_FAILED" -> "No se pudo comprobar actualizaciones:\n" + status.notes();
+                case "UPDATE_AVAILABLE" -> "Se detectó una actualización, pero no había un asset descargable compatible.";
+                case "SKIPPED" -> "La comprobación semanal aún no corresponde.";
+                default -> describeUpdateState(state);
+            };
+            JOptionPane.showMessageDialog(this, message, "Actualizaciones",
+                    "CHECK_FAILED".equals(state) ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private String describeUpdateState(String state) {
+        return switch (state == null ? "" : state) {
+            case "UPDATE_DOWNLOADED" -> "Actualización descargada";
+            case "UPDATE_AVAILABLE" -> "Actualización disponible";
+            case "UP_TO_DATE" -> "Sin actualizaciones";
+            case "SKIPPED" -> "Comprobación semanal omitida";
+            case "CHECK_FAILED" -> "Comprobación fallida";
+            default -> "Estado desconocido";
+        };
     }
     private void upsertProfile() {
         boolean creating = editingProfileId == null;

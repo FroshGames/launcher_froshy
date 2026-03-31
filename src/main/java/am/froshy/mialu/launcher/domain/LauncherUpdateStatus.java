@@ -5,7 +5,10 @@ public record LauncherUpdateStatus(
         String currentVersion,
         String latestVersion,
         String downloadUrl,
-        String notes
+        String notes,
+        String checkedAt,
+        String downloadedAssetName,
+        String downloadedFile
 ) {
 }
 
