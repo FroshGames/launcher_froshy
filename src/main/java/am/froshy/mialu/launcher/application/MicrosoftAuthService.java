@@ -36,10 +36,11 @@ public final class MicrosoftAuthService {
     private static final URI MC_LOGIN_URI = URI.create("https://api.minecraftservices.com/authentication/login_with_xbox");
     private static final URI MC_PROFILE_URI = URI.create("https://api.minecraftservices.com/minecraft/profile");
 
-    // Cliente publico compatible con loopback redirect (localhost) para apps de escritorio.
-    private static final String DEFAULT_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
-    // Cliente alternativo: no siempre soporta localhost en browser-flow, se valida antes de usar.
-    private static final String ALT_PUBLIC_CLIENT_ID = "00000000402b5328";
+    // Cliente publico mejorado para aplicaciones de escritorio (desktop app)
+    // Este cliente está diseñado para flujos OAuth nativos y soporta localhost redirect
+    private static final String DEFAULT_CLIENT_ID = "389b1b32-b5d5-43b2-bf1a-76cb27cae1e1";
+    // Cliente alternativo: usado cuando el primero falla por problemas de consentimiento
+    private static final String ALT_PUBLIC_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
     private static final String PRIMARY_SCOPE = "XboxLive.signin offline_access";
     private static final String FALLBACK_SCOPE = "XboxLive.signin";
     private static final long LOGIN_EXPIRY_SECONDS = 300;
@@ -252,11 +253,22 @@ public final class MicrosoftAuthService {
         if (data.error() != null && !data.error().isBlank()) {
             String detail = (data.errorDescription() == null || data.errorDescription().isBlank()) ? data.error() : data.errorDescription();
             String lowered = detail.toLowerCase();
+            
+            // Si es error de first-party y no estamos ya con cliente alternativo
             if ((lowered.contains("first party") || lowered.contains("pre-authorization") || lowered.contains("consent"))
+                    && !ALT_PUBLIC_CLIENT_ID.equals(pending.oauthClientId())
                     && switchToAlternateClient(pending.oauthClientId())) {
                 throw new IllegalStateException("MS_RETRY_AUTOMATIC:Consentimiento bloqueado para este cliente. "
                         + "Reintentando con cliente Microsoft alternativo.");
             }
+            
+            // Si es error de scope y podemos intentar sin offline_access
+            if (lowered.contains("offline_access") && PRIMARY_SCOPE.equals(pending.oauthScope())) {
+                preferredScope = FALLBACK_SCOPE;
+                throw new IllegalStateException("MS_RETRY_AUTOMATIC:Scope offline_access no permitido. "
+                        + "Reintentando con scope simplificado.");
+            }
+            
             String mapped = mapFirstPartyConsentError(detail);
             pending.future().completeExceptionally(new IllegalStateException(mapped));
             throw new IllegalStateException(mapped);
@@ -313,6 +325,17 @@ public final class MicrosoftAuthService {
 
         if (error != null && !error.isBlank()) {
             String detail = (errorDescription == null || errorDescription.isBlank()) ? error : errorDescription;
+            String lowered = detail.toLowerCase();
+            
+            // Si es error de first-party, intentar con cliente alternativo
+            if ((lowered.contains("first party") || lowered.contains("pre-authorization") || lowered.contains("consent"))
+                    && !ALT_PUBLIC_CLIENT_ID.equals(pending.oauthClientId())
+                    && switchToAlternateClient(pending.oauthClientId())) {
+                String msg = "Microsoft bloqueo el consentimiento. Reintentando con cliente alternativo...";
+                pending.future().completeExceptionally(new IllegalStateException("MS_RETRY_AUTOMATIC:" + msg));
+                return callbackHtml(false, msg);
+            }
+            
             String mapped = mapFirstPartyConsentError(detail);
             pending.future().completeExceptionally(new IllegalStateException(mapped));
             return callbackHtml(false, mapped);
@@ -560,10 +583,13 @@ public final class MicrosoftAuthService {
         String desc = tokenError.path("error_description").asText("");
         String combined = (code + " " + desc).toLowerCase();
 
+        // Detectar y manejar errores de first-party / consentimiento bloqueado
         if (combined.contains("first party") || combined.contains("pre-authorization")
                 || combined.contains("aadsts65001") || combined.contains("consent")) {
-            return "La cuenta no puede autorizar esta aplicacion con el cliente actual. "
-                    + "Usa una cuenta Microsoft personal o configura un Client ID propio en MIALU_MS_CLIENT_ID.";
+            return "La cuenta Microsoft no permitio el login automaticamente. "
+                    + "Esto puede ocurrir con cuentas de trabajo/escuela. "
+                    + "Solucion: Usa una cuenta Microsoft personal (Outlook, Hotmail) "
+                    + "o crea un Client ID propio registrando tu app en https://portal.azure.com";
         }
         if (combined.contains("unauthorized_client") || combined.contains("aadsts700016")) {
             return "Client ID de Microsoft invalido o no registrado para este flujo. "
@@ -589,9 +615,11 @@ public final class MicrosoftAuthService {
         String lowered = detail.toLowerCase();
         if (lowered.contains("first party") || lowered.contains("pre-authorization")
                 || lowered.contains("users are not permitted to consent")) {
-            return "Microsoft bloqueo el consentimiento para esta aplicacion en tu cuenta actual. "
-                    + "Solucion: inicia con una cuenta Microsoft personal (no trabajo/escuela) "
-                    + "o configura un Client ID propio en MIALU_MS_CLIENT_ID.";
+            return "Microsoft bloqueo el consentimiento para esta aplicacion. "
+                    + "Posibles soluciones:\n"
+                    + "1. Usa una cuenta Microsoft PERSONAL (Outlook, Hotmail, etc)\n"
+                    + "2. No uses cuentas de trabajo/escuela\n"
+                    + "3. Registra tu propio Client ID en https://portal.azure.com";
         }
         return "Login Microsoft cancelado: " + detail;
     }
