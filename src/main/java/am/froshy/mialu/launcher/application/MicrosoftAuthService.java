@@ -53,6 +53,7 @@ public final class MicrosoftAuthService {
     private final Map<String, PendingBrowserLogin> pendingByOperation = new ConcurrentHashMap<>();
 
     private volatile MicrosoftAuthStore.StoredMicrosoftSession session;
+    private volatile MicrosoftOAuthCallbackServer callbackServer;
 
     public MicrosoftAuthService(LauncherConfig config, MicrosoftAuthStore store) {
         this.http = HttpClient.newBuilder()
@@ -62,8 +63,28 @@ public final class MicrosoftAuthService {
         this.mapper = new ObjectMapper().findAndRegisterModules();
         this.store = store;
         this.clientId = readClientId();
-        this.redirectUri = "http://localhost:" + config.internalApiPort();
         this.session = store.load().orElse(null);
+
+        String fallbackRedirect = "http://localhost:" + config.internalApiPort() + "/";
+        String resolvedRedirect = fallbackRedirect;
+
+        // Con client_id público intentamos loopback en 3000; si falla, usamos el callback interno.
+        if (DEFAULT_CLIENT_ID.equals(clientId)) {
+            try {
+                this.callbackServer = new MicrosoftOAuthCallbackServer();
+                this.callbackServer.start();
+                resolvedRedirect = "http://localhost:3000/";
+            } catch (Exception ex) {
+                System.err.println("Advertencia: Puerto 3000 no disponible. Se usara callback interno en puerto "
+                        + config.internalApiPort() + ".");
+            }
+        }
+
+        this.redirectUri = resolvedRedirect;
+    }
+
+    private String buildRedirectUri(LauncherConfig config) {
+        return "http://localhost:" + config.internalApiPort() + "/";
     }
 
     private String readClientId() {
@@ -107,6 +128,27 @@ public final class MicrosoftAuthService {
         }
 
         long timeoutMs = Math.max(1000L, Duration.between(Instant.now(), pending.expiresAt()).toMillis());
+        
+        // Si estamos usando el servidor de callback en puerto 3000, esperar allí
+        if (callbackServer != null && DEFAULT_CLIENT_ID.equals(clientId)) {
+            try {
+                Optional<MicrosoftOAuthCallbackServer.OAuthCallbackData> callback = callbackServer.waitForCallback(timeoutMs);
+                if (callback.isEmpty()) {
+                    throw new IllegalStateException("No se recibio callback OAuth en localhost. "
+                            + "Verifica que el navegador no bloquee la redireccion.");
+                }
+
+                MicrosoftOAuthCallbackServer.OAuthCallbackData data = callback.get();
+                return processBrowserLoginData(pending, data);
+            } catch (Exception ex) {
+                pending.future().completeExceptionally(ex);
+                throw new IllegalStateException(ex.getMessage(), ex);
+            } finally {
+                clearPending(pending);
+            }
+        }
+        
+        // Fallback: usar el flujo normal esperando en el futuro
         try {
             return pending.future().get(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (java.util.concurrent.TimeoutException ex) {
@@ -117,6 +159,49 @@ public final class MicrosoftAuthService {
             throw new IllegalStateException(cause.getMessage(), cause);
         } finally {
             clearPending(pending);
+        }
+    }
+    
+    private MicrosoftSessionStatus processBrowserLoginData(PendingBrowserLogin pending, MicrosoftOAuthCallbackServer.OAuthCallbackData data) {
+        if (data.state() == null || !data.state().equals(pending.state())) {
+            pending.future().completeExceptionally(new IllegalStateException("Estado OAuth invalido (state mismatch)"));
+            throw new IllegalStateException("Estado OAuth invalido (state mismatch)");
+        }
+        if (data.error() != null && !data.error().isBlank()) {
+            String detail = (data.errorDescription() == null || data.errorDescription().isBlank()) ? data.error() : data.errorDescription();
+            pending.future().completeExceptionally(new IllegalStateException("Login Microsoft cancelado: " + detail));
+            throw new IllegalStateException("Login Microsoft cancelado: " + detail);
+        }
+        if (data.code() == null || data.code().isBlank()) {
+            pending.future().completeExceptionally(new IllegalStateException("Microsoft no devolvio codigo de autorizacion"));
+            throw new IllegalStateException("Microsoft no devolvio codigo de autorizacion");
+        }
+        
+        try {
+            JsonNode token = postForm(TOKEN_FLOW.TOKEN, Map.of(
+                    "grant_type", "authorization_code",
+                    "client_id", clientId,
+                    "code", data.code(),
+                    "redirect_uri", redirectUri,
+                    "code_verifier", pending.codeVerifier(),
+                    "scope", SCOPE
+            ));
+            if (token.has("error")) {
+                throw new IllegalStateException("Microsoft auth error: " + token.path("error").asText("unknown"));
+            }
+
+            String msAccessToken = token.path("access_token").asText("");
+            String refreshToken = token.path("refresh_token").asText("");
+            if (msAccessToken.isBlank()) {
+                throw new IllegalStateException("No se recibio access_token de Microsoft");
+            }
+
+            MicrosoftSessionStatus status = exchangeAndPersist(refreshToken, msAccessToken);
+            pending.future().complete(status);
+            return status;
+        } catch (Exception ex) {
+            pending.future().completeExceptionally(ex);
+            throw new IllegalStateException(ex.getMessage(), ex);
         }
     }
 
