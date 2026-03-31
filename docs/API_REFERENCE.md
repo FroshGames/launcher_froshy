@@ -6,7 +6,7 @@
 http://localhost:7878/internal/v1
 ```
 
-**Nota**: El puerto puede cambiar según variable de entorno `FROSHY_API_PORT`.
+**Nota**: El puerto puede cambiar según variable de entorno `MIALU_API_PORT`.
 
 ---
 
@@ -237,7 +237,7 @@ Content-Type: application/json
 {
   "launchId": "550e8400-e29b-41d4-a716-446655440000",
   "profileId": "default",
-  "commandLine": "java -Xmx2G -jar minecraft-1.20.1.jar --gameDir C:\\Users\\User\\.froshy-launcher\\game --username Steve",
+  "commandLine": "java -Xmx2G -jar minecraft-1.20.1.jar --gameDir C:\\Users\\User\\.mialu-launcher\\game --username Steve",
   "startedAt": "2026-03-04T04:30:45Z",
   "status": "STARTED"
 }
@@ -279,7 +279,7 @@ Content-Type: application/json
 
 Ejemplo de comando generado:
 ```bash
-java -Xmx2G -jar minecraft-1.20.1.jar --gameDir ~/.froshy-launcher/game --username Steve
+java -Xmx2G -jar minecraft-1.20.1.jar --gameDir ~/.mialu-launcher/game --username Steve
 ```
 
 ### Ejemplo curl
@@ -537,7 +537,7 @@ done
 
 2. **Crear colección de requests**:
    ```
-   Froshy Launcher
+   Launcher_Mialu
    ├── Health
    ├── List Profiles
    ├── Create Profile
@@ -559,4 +559,11 @@ done
 
 **Última actualización**: 2026-03-04  
 **Versión**: 1.0
+
+
+
+
+
+
+
 

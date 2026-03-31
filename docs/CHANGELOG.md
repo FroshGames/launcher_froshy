@@ -1,4 +1,4 @@
-# Changelog - Froshy Launcher
+# Changelog - Launcher_Mialu
 
 Todas las modificaciones notables en este proyecto serán documentadas en este archivo.
 
@@ -40,7 +40,7 @@ y el versionado sigue [Semantic Versioning](https://semver.org/).
   - Crear perfiles
   - Lanzar juego (simulado)
   - Simular descargas con progreso
-- ✅ `ProfileStore` para persistencia JSON en `~/.froshy-launcher/profiles.json`
+- ✅ `ProfileStore` para persistencia JSON en `~/.mialu-launcher/profiles.json`
 - ✅ Modelos de dominio como records (MinecraftProfile, LaunchRequest, etc.)
 
 #### API HTTP (Fase 2)
@@ -180,4 +180,11 @@ docs(readme): actualizar instrucciones de setup
 ---
 
 **Última actualización**: 2026-03-04
+
+
+
+
+
+
+
 

@@ -2,18 +2,18 @@
 
 ## ✅ Estado Final
 
-Ahora **`launcher-1.0-SNAPSHOT.jar` es el JAR ejecutable** que incluye todas las dependencias automáticamente.
+Ahora **`launcher.jar` es el JAR ejecutable** que incluye todas las dependencias automáticamente.
 
 ```bash
 # El comando que quería
-java -jar target/launcher-1.0-SNAPSHOT.jar  ✅ FUNCIONA
+java -jar target/launcher_mialu.jar  ✅ FUNCIONA
 ```
 
 ## Problema Inicial
 
 Al ejecutar el primer JAR generado:
 ```bash
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 Se obtenía error:
@@ -46,7 +46,7 @@ Se configuró **maven-shade-plugin** en el `pom.xml` para:
                 <createDependencyReducedPom>false</createDependencyReducedPom>
                 <transformers>
                     <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                        <mainClass>am.froshy.launcher.LauncherUiApplication</mainClass>
+                        <mainClass>am.froshy.mialu.launcher.LauncherUiApplication</mainClass>
                     </transformer>
                 </transformers>
             </configuration>
@@ -59,8 +59,8 @@ Se configuró **maven-shade-plugin** en el `pom.xml` para:
 
 ```
 target/
-├── launcher-1.0-SNAPSHOT.jar                (2.38 MB) ✅ Usar este - contiene todo
-└── original-launcher-1.0-SNAPSHOT.jar       (38 KB)   - JAR original sin deps, ignorar
+├── launcher.jar                (2.38 MB) ✅ Usar este - contiene todo
+└── original-launcher.jar       (38 KB)   - JAR original sin deps, ignorar
 ```
 
 ## Comandos Finales
@@ -70,7 +70,7 @@ target/
 mvn clean package
 
 # Ejecutar (simple y directo)
-java -jar target/launcher-1.0-SNAPSHOT.jar
+java -jar target/launcher_mialu.jar
 ```
 
 ## Documentación Actualizada
@@ -84,3 +84,11 @@ Se actualizaron estos archivos:
 
 **Fecha del Fix**: 2026-03-04  
 **Estado**: ✅ **Resuelto y simplificado - Un único JAR ejecutable**
+
+
+
+
+
+
+
+
