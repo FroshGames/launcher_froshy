@@ -13,6 +13,8 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -61,6 +63,9 @@ public final class InternalApiServer {
         server.createContext("/internal/v1/versions/prepare", exchange -> withErrorHandling(exchange, this::handlePrepareVersion));
         server.createContext("/internal/v1/settings/modpack-compat", exchange -> withErrorHandling(exchange, this::handleModpackCompatibility));
         server.createContext("/internal/v1/settings/user", exchange -> withErrorHandling(exchange, this::handleUserSettings));
+        server.createContext("/internal/v1/auth/microsoft/login/start", exchange -> withErrorHandling(exchange, this::handleMicrosoftLoginStart));
+        server.createContext("/internal/v1/auth/microsoft/login/complete", exchange -> withErrorHandling(exchange, this::handleMicrosoftLoginComplete));
+        server.createContext("/internal/v1/auth/microsoft/callback", this::handleMicrosoftCallback);
         server.createContext("/internal/v1/auth/microsoft/device/start", exchange -> withErrorHandling(exchange, this::handleMicrosoftDeviceStart));
         server.createContext("/internal/v1/auth/microsoft/device/complete", exchange -> withErrorHandling(exchange, this::handleMicrosoftDeviceComplete));
         server.createContext("/internal/v1/auth/microsoft/session", exchange -> withErrorHandling(exchange, this::handleMicrosoftSession));
@@ -287,6 +292,46 @@ public final class InternalApiServer {
         sendJson(exchange, 200, launcherService.startMicrosoftDeviceLogin());
     }
 
+    private void handleMicrosoftLoginStart(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        sendJson(exchange, 200, launcherService.startMicrosoftBrowserLogin());
+    }
+
+    private void handleMicrosoftLoginComplete(HttpExchange exchange) throws IOException {
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendMethodNotAllowed(exchange, List.of("POST"));
+            return;
+        }
+        Map<String, String> request = readBody(exchange, new TypeReference<>() {});
+        sendJson(exchange, 200, launcherService.completeMicrosoftBrowserLogin(request.get("operationId")));
+    }
+
+    private void handleMicrosoftCallback(HttpExchange exchange) throws IOException {
+        try {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", "GET");
+                sendHtml(exchange, 405, "Metodo no permitido");
+                return;
+            }
+
+            Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
+            String html = launcherService.handleMicrosoftBrowserCallback(
+                    query.get("state"),
+                    query.get("code"),
+                    query.get("error"),
+                    query.get("error_description")
+            );
+            sendHtml(exchange, 200, html);
+        } catch (Exception ex) {
+            sendHtml(exchange, 500, "<html><body><h3>Error</h3><p>" + ex.getMessage() + "</p></body></html>");
+        } finally {
+            exchange.close();
+        }
+    }
+
     private void handleMicrosoftDeviceComplete(HttpExchange exchange) throws IOException {
         if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
             sendMethodNotAllowed(exchange, List.of("POST"));
@@ -346,6 +391,26 @@ public final class InternalApiServer {
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         exchange.sendResponseHeaders(statusCode, payload.length);
         exchange.getResponseBody().write(payload);
+    }
+
+    private void sendHtml(HttpExchange exchange, int statusCode, String html) throws IOException {
+        byte[] payload = html.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+        exchange.sendResponseHeaders(statusCode, payload.length);
+        exchange.getResponseBody().write(payload);
+    }
+
+    private static Map<String, String> parseQuery(String rawQuery) {
+        if (rawQuery == null || rawQuery.isBlank()) return Map.of();
+        java.util.HashMap<String, String> map = new java.util.HashMap<>();
+        for (String token : rawQuery.split("&")) {
+            int idx = token.indexOf('=');
+            if (idx <= 0) continue;
+            String key = URLDecoder.decode(token.substring(0, idx), StandardCharsets.UTF_8);
+            String val = URLDecoder.decode(token.substring(idx + 1), StandardCharsets.UTF_8);
+            map.put(key, val);
+        }
+        return map;
     }
 
     private void sendJsonUnchecked(HttpExchange exchange, int statusCode, Object body) {

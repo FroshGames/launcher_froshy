@@ -4,6 +4,7 @@ import am.froshy.mialu.launcher.domain.DownloadStatus;
 import am.froshy.mialu.launcher.domain.LaunchRequest;
 import am.froshy.mialu.launcher.domain.LaunchResult;
 import am.froshy.mialu.launcher.domain.LauncherUpdateStatus;
+import am.froshy.mialu.launcher.domain.MicrosoftBrowserLogin;
 import am.froshy.mialu.launcher.domain.MicrosoftDeviceCode;
 import am.froshy.mialu.launcher.domain.MicrosoftSessionStatus;
 import am.froshy.mialu.launcher.domain.MinecraftProfile;
@@ -111,6 +112,14 @@ public final class InternalApiClient {
     public boolean isGameAlive(String launchId) {
         Map<String, Object> res = send("launch/" + launchId + "/alive", "GET", null, new TypeReference<>() {});
         return Boolean.TRUE.equals(res.get("alive"));
+    }
+
+    public MicrosoftBrowserLogin startMicrosoftBrowserLogin() {
+        return send("auth/microsoft/login/start", "POST", Map.of(), new TypeReference<>() {});
+    }
+
+    public MicrosoftSessionStatus completeMicrosoftBrowserLogin(String operationId) {
+        return send("auth/microsoft/login/complete", "POST", Map.of("operationId", operationId), new TypeReference<>() {});
     }
 
     public MicrosoftDeviceCode startMicrosoftDeviceLogin() {

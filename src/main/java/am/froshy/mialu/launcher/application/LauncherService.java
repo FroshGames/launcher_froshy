@@ -5,6 +5,7 @@ import am.froshy.mialu.launcher.config.LauncherSettings;
 import am.froshy.mialu.launcher.domain.DownloadStatus;
 import am.froshy.mialu.launcher.domain.LaunchRequest;
 import am.froshy.mialu.launcher.domain.LaunchResult;
+import am.froshy.mialu.launcher.domain.MicrosoftBrowserLogin;
 import am.froshy.mialu.launcher.domain.MicrosoftDeviceCode;
 import am.froshy.mialu.launcher.domain.MicrosoftSessionStatus;
 import am.froshy.mialu.launcher.domain.MinecraftProfile;
@@ -468,6 +469,18 @@ public final class LauncherService {
 
     public MicrosoftSessionStatus completeMicrosoftDeviceLogin(String deviceCode) {
         return microsoftAuthService.completeDeviceLogin(deviceCode);
+    }
+
+    public MicrosoftBrowserLogin startMicrosoftBrowserLogin() {
+        return microsoftAuthService.startBrowserLogin();
+    }
+
+    public MicrosoftSessionStatus completeMicrosoftBrowserLogin(String operationId) {
+        return microsoftAuthService.completeBrowserLogin(operationId);
+    }
+
+    public String handleMicrosoftBrowserCallback(String state, String code, String error, String errorDescription) {
+        return microsoftAuthService.handleBrowserCallback(state, code, error, errorDescription);
     }
 
     public MicrosoftSessionStatus getMicrosoftSessionStatus() {

@@ -9,7 +9,6 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.awt.datatransfer.StringSelection;
 import java.awt.event.*;
 import java.awt.geom.GeneralPath;
 import java.io.File;
@@ -1372,22 +1371,12 @@ public final class LauncherFrame extends JFrame {
 
     private void startMicrosoftLogin() {
         runAsync(() -> {
-            var device = apiClient.startMicrosoftDeviceLogin();
+            var login = apiClient.startMicrosoftBrowserLogin();
+            openMicrosoftVerificationUrl(login.authorizationUrl());
 
-            openMicrosoftVerificationUrl(device.verificationUriComplete());
-            copyToClipboard(device.userCode());
+            SwingUtilities.invokeLater(() -> appendOutput("[Premium] Esperando inicio de sesion en el navegador..."));
 
-            SwingUtilities.invokeLater(() -> {
-                JOptionPane.showMessageDialog(this,
-                        device.message()
-                                + "\n\nCodigo (copiado): " + device.userCode()
-                                + "\nURL: " + device.verificationUri(),
-                        "Login Microsoft",
-                        JOptionPane.INFORMATION_MESSAGE);
-                appendOutput("[Premium] Esperando confirmacion del dispositivo para codigo: " + device.userCode());
-            });
-
-            var session = apiClient.completeMicrosoftDeviceLogin(device.deviceCode());
+            var session = apiClient.completeMicrosoftBrowserLogin(login.operationId());
             SwingUtilities.invokeLater(() -> {
                 appendOutput("[Premium] Login completado: " + session.playerName());
                 refreshMicrosoftSession();
@@ -1408,16 +1397,6 @@ public final class LauncherFrame extends JFrame {
         }
     }
 
-    private void copyToClipboard(String text) {
-        if (text == null || text.isBlank()) {
-            return;
-        }
-        try {
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
-        } catch (Exception ex) {
-            appendOutput("[Premium] No se pudo copiar el codigo al portapapeles: " + ex.getMessage());
-        }
-    }
 
     private void logoutMicrosoft() {
         runAsync(() -> {

@@ -1,6 +1,7 @@
 package am.froshy.mialu.launcher.application;
 
 import am.froshy.mialu.launcher.config.LauncherConfig;
+import am.froshy.mialu.launcher.domain.MicrosoftBrowserLogin;
 import am.froshy.mialu.launcher.domain.MicrosoftDeviceCode;
 import am.froshy.mialu.launcher.domain.MicrosoftSessionStatus;
 import am.froshy.mialu.launcher.infrastructure.MicrosoftAuthStore;
@@ -14,13 +15,22 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 public final class MicrosoftAuthService {
 
+    private static final URI AUTHORIZE_URI = URI.create("https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize");
     private static final URI DEVICE_CODE_URI = URI.create("https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode");
     private static final URI TOKEN_URI = URI.create("https://login.microsoftonline.com/consumers/oauth2/v2.0/token");
     private static final URI XBL_AUTH_URI = URI.create("https://user.auth.xboxlive.com/user/authenticate");
@@ -28,14 +38,19 @@ public final class MicrosoftAuthService {
     private static final URI MC_LOGIN_URI = URI.create("https://api.minecraftservices.com/authentication/login_with_xbox");
     private static final URI MC_PROFILE_URI = URI.create("https://api.minecraftservices.com/minecraft/profile");
 
-    // Cliente publico usado para flujo device code cuando no se define uno personalizado.
-    private static final String DEFAULT_CLIENT_ID = "00000000402b5328";
+    // Cliente publico con redirect loopback para login OAuth normal en apps de escritorio.
+    private static final String DEFAULT_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
     private static final String SCOPE = "XboxLive.signin offline_access";
+    private static final long LOGIN_EXPIRY_SECONDS = 300;
 
     private final HttpClient http;
     private final ObjectMapper mapper;
     private final MicrosoftAuthStore store;
     private final String clientId;
+    private final String redirectUri;
+
+    private final Map<String, PendingBrowserLogin> pendingByState = new ConcurrentHashMap<>();
+    private final Map<String, PendingBrowserLogin> pendingByOperation = new ConcurrentHashMap<>();
 
     private volatile MicrosoftAuthStore.StoredMicrosoftSession session;
 
@@ -47,6 +62,7 @@ public final class MicrosoftAuthService {
         this.mapper = new ObjectMapper().findAndRegisterModules();
         this.store = store;
         this.clientId = readClientId();
+        this.redirectUri = "http://localhost:" + config.internalApiPort() + "/internal/v1/auth/microsoft/callback";
         this.session = store.load().orElse(null);
     }
 
@@ -66,70 +82,94 @@ public final class MicrosoftAuthService {
         return DEFAULT_CLIENT_ID;
     }
 
-    public MicrosoftDeviceCode startDeviceLogin() {
+    public MicrosoftBrowserLogin startBrowserLogin() {
         ensureConfigured();
-        JsonNode node = postForm(TOKEN_FLOW.DEVICE_CODE, Map.of(
-                "client_id", clientId,
-                "scope", SCOPE
-        ));
+        cleanupExpiredPending();
 
-        Instant expiresAt = Instant.now().plusSeconds(node.path("expires_in").asLong(900));
-        return new MicrosoftDeviceCode(
-                node.path("device_code").asText(""),
-                node.path("user_code").asText(""),
-                node.path("verification_uri").asText("https://microsoft.com/link"),
-                node.path("verification_uri_complete").asText(node.path("verification_uri").asText("https://microsoft.com/link")),
-                node.path("message").asText("Inicia sesion en Microsoft para continuar."),
-                Math.max(2, node.path("interval").asLong(5)),
-                expiresAt
-        );
+        String operationId = "msa-" + UUID.randomUUID();
+        String state = randomToken(24);
+        String codeVerifier = randomToken(64);
+        String codeChallenge = pkceChallenge(codeVerifier);
+        Instant expiresAt = Instant.now().plusSeconds(LOGIN_EXPIRY_SECONDS);
+
+        String authorizationUrl = buildAuthorizationUrl(state, codeChallenge);
+        PendingBrowserLogin pending = new PendingBrowserLogin(operationId, state, codeVerifier, expiresAt);
+        pendingByState.put(state, pending);
+        pendingByOperation.put(operationId, pending);
+
+        return new MicrosoftBrowserLogin(operationId, authorizationUrl, expiresAt);
+    }
+
+    public MicrosoftSessionStatus completeBrowserLogin(String operationId) {
+        PendingBrowserLogin pending = pendingByOperation.get(operationId);
+        if (pending == null) {
+            throw new IllegalArgumentException("Operacion de login no encontrada o expirada");
+        }
+
+        long timeoutMs = Math.max(1000L, Duration.between(Instant.now(), pending.expiresAt()).toMillis());
+        try {
+            return pending.future().get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException ex) {
+            pending.future().completeExceptionally(new IllegalStateException("Tiempo de espera agotado en login Microsoft"));
+            throw new IllegalStateException("Tiempo de espera agotado en login Microsoft");
+        } catch (Exception ex) {
+            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+            throw new IllegalStateException(cause.getMessage(), cause);
+        } finally {
+            clearPending(pending);
+        }
+    }
+
+    public String handleBrowserCallback(String state, String code, String error, String errorDescription) {
+        PendingBrowserLogin pending = pendingByState.get(state);
+        if (pending == null || pending.expiresAt().isBefore(Instant.now())) {
+            return callbackHtml(false, "La sesion de login expiro. Vuelve a intentarlo desde el launcher.");
+        }
+
+        if (error != null && !error.isBlank()) {
+            String detail = (errorDescription == null || errorDescription.isBlank()) ? error : errorDescription;
+            pending.future().completeExceptionally(new IllegalStateException("Login Microsoft cancelado: " + detail));
+            return callbackHtml(false, "Inicio de sesion cancelado: " + detail);
+        }
+        if (code == null || code.isBlank()) {
+            pending.future().completeExceptionally(new IllegalStateException("Microsoft no devolvio codigo de autorizacion"));
+            return callbackHtml(false, "Microsoft no devolvio codigo de autorizacion.");
+        }
+
+        try {
+            JsonNode token = postForm(TOKEN_FLOW.TOKEN, Map.of(
+                    "grant_type", "authorization_code",
+                    "client_id", clientId,
+                    "code", code,
+                    "redirect_uri", redirectUri,
+                    "code_verifier", pending.codeVerifier(),
+                    "scope", SCOPE
+            ));
+            if (token.has("error")) {
+                throw new IllegalStateException("Microsoft auth error: " + token.path("error").asText("unknown"));
+            }
+
+            String msAccessToken = token.path("access_token").asText("");
+            String refreshToken = token.path("refresh_token").asText("");
+            if (msAccessToken.isBlank()) {
+                throw new IllegalStateException("No se recibio access_token de Microsoft");
+            }
+
+            MicrosoftSessionStatus status = exchangeAndPersist(refreshToken, msAccessToken);
+            pending.future().complete(status);
+            return callbackHtml(true, "Login completado. Ya puedes volver al launcher.");
+        } catch (Exception ex) {
+            pending.future().completeExceptionally(ex);
+            return callbackHtml(false, "Error en login Microsoft: " + ex.getMessage());
+        }
+    }
+
+    public MicrosoftDeviceCode startDeviceLogin() {
+        throw new UnsupportedOperationException("Flujo por codigo deshabilitado. Usa login normal de navegador.");
     }
 
     public MicrosoftSessionStatus completeDeviceLogin(String deviceCode) {
-        ensureConfigured();
-        if (deviceCode == null || deviceCode.isBlank()) {
-            throw new IllegalArgumentException("deviceCode es obligatorio");
-        }
-
-        String refreshToken = null;
-        String microsoftAccessToken = null;
-        long interval = 5;
-        Instant timeout = Instant.now().plusSeconds(900);
-
-        while (Instant.now().isBefore(timeout)) {
-            JsonNode tokenResponse = postForm(TOKEN_FLOW.TOKEN, Map.of(
-                    "grant_type", "urn:ietf:params:oauth:grant-type:device_code",
-                    "client_id", clientId,
-                    "device_code", deviceCode
-            ));
-
-            if (tokenResponse.has("error")) {
-                String error = tokenResponse.path("error").asText("");
-                if ("authorization_pending".equals(error)) {
-                    sleepSeconds(interval);
-                    continue;
-                }
-                if ("slow_down".equals(error)) {
-                    interval = Math.min(15, interval + 2);
-                    sleepSeconds(interval);
-                    continue;
-                }
-                throw new IllegalStateException("Microsoft auth error: " + error);
-            }
-
-            microsoftAccessToken = tokenResponse.path("access_token").asText("");
-            refreshToken = tokenResponse.path("refresh_token").asText("");
-            if (!microsoftAccessToken.isBlank()) {
-                break;
-            }
-            sleepSeconds(interval);
-        }
-
-        if (microsoftAccessToken == null || microsoftAccessToken.isBlank()) {
-            throw new IllegalStateException("Tiempo de espera agotado al iniciar sesion con Microsoft");
-        }
-
-        return exchangeAndPersist(refreshToken, microsoftAccessToken);
+        throw new UnsupportedOperationException("Flujo por codigo deshabilitado. Usa login normal de navegador.");
     }
 
     public MicrosoftSessionStatus getSessionStatus() {
@@ -375,6 +415,70 @@ public final class MicrosoftAuthService {
         store.clear();
     }
 
+    private String buildAuthorizationUrl(String state, String codeChallenge) {
+        Map<String, String> params = new HashMap<>();
+        params.put("client_id", clientId);
+        params.put("response_type", "code");
+        params.put("redirect_uri", redirectUri);
+        params.put("response_mode", "query");
+        params.put("scope", SCOPE);
+        params.put("state", state);
+        params.put("prompt", "select_account");
+        params.put("code_challenge", codeChallenge);
+        params.put("code_challenge_method", "S256");
+
+        StringBuilder qs = new StringBuilder();
+        params.forEach((k, v) -> {
+            if (qs.length() > 0) qs.append('&');
+            qs.append(URLEncoder.encode(k, StandardCharsets.UTF_8));
+            qs.append('=');
+            qs.append(URLEncoder.encode(v, StandardCharsets.UTF_8));
+        });
+        return AUTHORIZE_URI + "?" + qs;
+    }
+
+    private String randomToken(int bytes) {
+        byte[] raw = new byte[bytes];
+        new SecureRandom().nextBytes(raw);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+    }
+
+    private String pkceChallenge(String verifier) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (Exception ex) {
+            throw new IllegalStateException("No se pudo generar PKCE", ex);
+        }
+    }
+
+    private void cleanupExpiredPending() {
+        Instant now = Instant.now();
+        pendingByOperation.values().stream()
+                .filter(p -> p.expiresAt().isBefore(now))
+                .toList()
+                .forEach(p -> {
+                    p.future().completeExceptionally(new IllegalStateException("Operacion de login expirada"));
+                    clearPending(p);
+                });
+    }
+
+    private void clearPending(PendingBrowserLogin pending) {
+        pendingByState.remove(pending.state());
+        pendingByOperation.remove(pending.operationId());
+    }
+
+    private String callbackHtml(boolean success, String message) {
+        String title = success ? "Login completado" : "Login fallido";
+        String color = success ? "#22bb66" : "#cc3344";
+        String safeMessage = message == null ? "" : message.replace("<", "&lt;").replace(">", "&gt;");
+        return "<html><head><meta charset='utf-8'></head><body style='font-family:Segoe UI,sans-serif;background:#0f1222;color:#eaefff;padding:24px;'>"
+                + "<h2 style='color:" + color + ";'>" + title + "</h2>"
+                + "<p>" + safeMessage + "</p>"
+                + "<p>Puedes cerrar esta pestaña y volver al launcher.</p>"
+                + "</body></html>";
+    }
+
     private void sleepSeconds(long seconds) {
         try {
             Thread.sleep(Math.max(1, seconds) * 1000L);
@@ -385,6 +489,18 @@ public final class MicrosoftAuthService {
     }
 
     private enum TOKEN_FLOW { DEVICE_CODE, TOKEN }
+
+    private record PendingBrowserLogin(
+            String operationId,
+            String state,
+            String codeVerifier,
+            Instant expiresAt,
+            CompletableFuture<MicrosoftSessionStatus> future
+    ) {
+        private PendingBrowserLogin(String operationId, String state, String codeVerifier, Instant expiresAt) {
+            this(operationId, state, codeVerifier, expiresAt, new CompletableFuture<>());
+        }
+    }
 
     private record XboxAuth(String userHash, String xstsToken, String xuid) {
     }
