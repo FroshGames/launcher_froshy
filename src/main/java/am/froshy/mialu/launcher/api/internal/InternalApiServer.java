@@ -278,7 +278,9 @@ public final class InternalApiServer {
             Map<String, Object> request = readBody(exchange, new TypeReference<>() {});
             String username = request.get("username") == null ? "" : request.get("username").toString();
             boolean preferPremium = !Boolean.FALSE.equals(request.get("preferPremium"));
-            sendJson(exchange, 200, launcherService.updateGlobalUserSettings(username, preferPremium));
+            String oauthClientId = request.get("oauthClientId") == null ? "" : request.get("oauthClientId").toString();
+            String oauthTenant = request.get("oauthTenant") == null ? "consumers" : request.get("oauthTenant").toString();
+            sendJson(exchange, 200, launcherService.updateGlobalUserSettings(username, preferPremium, oauthClientId, oauthTenant));
             return;
         }
         sendMethodNotAllowed(exchange, List.of("GET", "POST"));

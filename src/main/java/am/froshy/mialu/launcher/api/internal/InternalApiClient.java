@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpTimeoutException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -143,9 +144,15 @@ public final class InternalApiClient {
     }
 
     public Map<String, Object> setGlobalUserSettings(String username, boolean preferPremium) {
+        return setGlobalUserSettings(username, preferPremium, "", "consumers");
+    }
+
+    public Map<String, Object> setGlobalUserSettings(String username, boolean preferPremium, String oauthClientId, String oauthTenant) {
         return send("settings/user", "POST", Map.of(
                 "username", username,
-                "preferPremium", preferPremium
+                "preferPremium", preferPremium,
+                "oauthClientId", oauthClientId == null ? "" : oauthClientId,
+                "oauthTenant", oauthTenant == null || oauthTenant.isBlank() ? "consumers" : oauthTenant
         ), new TypeReference<>() {});
     }
 
@@ -157,8 +164,10 @@ public final class InternalApiClient {
                 throw new IllegalStateException("Error API " + response.statusCode() + ": " + response.body());
             }
             return objectMapper.readValue(response.body(), typeReference);
+        } catch (HttpTimeoutException ex) {
+            throw new IllegalStateException("Tiempo de espera agotado en API interna para: " + path, ex);
         } catch (IOException ex) {
-            throw new IllegalStateException("No se pudo parsear la respuesta", ex);
+            throw new IllegalStateException("No se pudo leer la respuesta de API interna para: " + path, ex);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Llamada interrumpida", ex);
@@ -166,9 +175,10 @@ public final class InternalApiClient {
     }
 
     private HttpRequest buildRequest(String path, String method, Object body) throws IOException {
+        Duration timeout = requestTimeout(path);
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(baseUri.resolve(path))
-                .timeout(Duration.ofSeconds(10))
+                .timeout(timeout)
                 .header("Content-Type", "application/json");
 
         if ("GET".equalsIgnoreCase(method)) {
@@ -177,6 +187,14 @@ public final class InternalApiClient {
 
         byte[] payload = objectMapper.writeValueAsBytes(body);
         return builder.method(method, HttpRequest.BodyPublishers.ofByteArray(payload)).build();
+    }
+
+    private Duration requestTimeout(String path) {
+        // El endpoint de complete puede esperar hasta que el usuario termine login en navegador.
+        if (path != null && path.startsWith("auth/microsoft/login/complete")) {
+            return Duration.ofSeconds(340);
+        }
+        return Duration.ofSeconds(10);
     }
 }
 
