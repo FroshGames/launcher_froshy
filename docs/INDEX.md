@@ -1,52 +1,66 @@
-# 📖 Índice de Documentación - Launcher_Mialu
+# 📚 Índice de Documentación - Launcher_Mialu v1.1
 
-Documentación completa y detallada del proyecto **Launcher_Mialu**.
-
----
-
-## 🎯 Propósito
-
-Este launcher es un **proyecto educativo completo** que demuestra:
-
-- Arquitectura Java modular y escalable
-- Construcción de API REST sin frameworks pesados
-- Interfaz gráfica (Swing) profesional
-- Testing y documentación de calidad
-- Mejores prácticas de desarrollo
+**Versión:** 1.1 | **Última Actualización:** 31 de Marzo de 2026
 
 ---
 
-## 📚 Documentación por Público
+## 📂 Estructura Organizada
 
-### 👨‍💻 Desarrolladores (Empezar Aquí)
+La documentación está organizada en **subcarpetas temáticas** para mejor manejo:
 
-| Documento | Sección | Contenido |
-|-----------|---------|----------|
-| [QUICKSTART.md](QUICKSTART.md) | **⚡ Rápido** | Instalación paso a paso en 5 minutos |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | **🏗️ Diseño** | Cómo está construido el proyecto internamente |
-| [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) | **👨‍🔧 Práctico** | Cómo agregar features, debuggear, testear |
-| [API_REFERENCE.md](API_REFERENCE.md) | **📡 API** | Todos los endpoints con ejemplos curl |
-
-### 👥 Usuarios Finales
-
-| Documento | Contenido |
-|-----------|----------|
-| [README.md](README.md) (este repo) | Overview, quickstart, características |
-| [docs/README.md](README.md) | Guía completa de usuario del launcher |
-| [QUICKSTART.md](QUICKSTART.md) | Instalación y troubleshooting |
-
-### 📊 Gestores / Contribuidores
-
-| Documento | Contenido |
-|-----------|----------|
-| [CHANGELOG.md](CHANGELOG.md) | Historial de versiones, roadmap |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Decisiones de diseño, extensibilidad |
+```
+docs/
+├── guides/              📖 Guías prácticas para usuarios
+├── security/            🔒 Documentación de seguridad
+├── technical/           🔬 Documentación técnica profunda
+├── oauth/               🔑 Autenticación Microsoft OAuth
+├── setup/               ⚙️  Instalación y configuración
+├── references/          📖 Referencias y API
+├── changelog/           📜 Historial de cambios
+├── misc/                📋 Documentación miscelánea
+└── INDEX.md             📍 Este archivo
+```
 
 ---
 
-## 🗺️ Mapa de Contenidos
+## 🎯 Acceso Rápido por Rol
 
-### 1. [QUICKSTART.md](QUICKSTART.md) - **Empezar Aquí** ⚡
+### 👤 Usuario Final
+```
+guides/QUICK_START.md          (2 minutos)
+    ↓
+guides/INSTALLATION.md          (15 minutos)
+    ↓
+guides/USER_GUIDE.md            (Referencia)
+    ↓
+✅ ¡Listo para jugar!
+```
+
+### 🛠️ Administrador
+```
+setup/INSTALACION.md            (15 minutos)
+    ↓
+setup/ENVIRONMENT_VARIABLES.md  (10 minutos)
+    ↓
+security/SECURITY_MEASURES.md   (20 minutos)
+    ↓
+✅ ¡Sistema configurado y seguro!
+```
+
+### 👨‍💻 Desarrollador
+```
+technical/ARCHITECTURE.md           (15 minutos)
+    ↓
+technical/REFERENCIA_TECNICA.md     (30 minutos)
+    ↓
+security/SECURITY_INTEGRATION_GUIDE.md (20 minutos)
+    ↓
+✅ ¡Listo para contribuir!
+```
+
+---
+
+## 📂 Contenido por Carpeta
 
 **Objetivo**: Tener el launcher funcionando en 5 minutos.
 

@@ -126,6 +126,7 @@ public final class LauncherService {
         this.microsoftAuthService = microsoftAuthService;
         this.settingsStore = settingsStore;
         this.launcherSettings = settingsStore.load();
+        applyOAuthOverrides(this.launcherSettings);
         this.modpackCompatibilityMode = modpackCompatibilityMode == null
                 ? ModpackCompatibilityMode.BOTH
                 : modpackCompatibilityMode;
@@ -498,17 +499,41 @@ public final class LauncherService {
         return Map.of(
                 "username", current.globalUsername(),
                 "preferPremium", current.preferPremiumLogin(),
+                "oauthClientId", current.oauthClientId(),
+                "oauthTenant", current.oauthTenant(),
                 "premiumConnected", premium.connected(),
                 "premiumPlayer", premium.playerName()
         );
     }
 
     public Map<String, Object> updateGlobalUserSettings(String username, boolean preferPremium) {
+        return updateGlobalUserSettings(username, preferPremium, launcherSettings.oauthClientId(), launcherSettings.oauthTenant());
+    }
+
+    public Map<String, Object> updateGlobalUserSettings(String username, boolean preferPremium, String oauthClientId, String oauthTenant) {
         String sanitized = sanitizeGlobalUsername(username);
-        LauncherSettings updated = launcherSettings.withGlobalUser(sanitized, preferPremium);
+        LauncherSettings updated = launcherSettings.withGlobalUser(sanitized, preferPremium)
+                .withOAuthConfig(oauthClientId, oauthTenant);
         settingsStore.save(updated);
         launcherSettings = updated;
+        applyOAuthOverrides(updated);
         return getGlobalUserSettings();
+    }
+
+    private void applyOAuthOverrides(LauncherSettings settings) {
+        String clientId = settings.oauthClientId();
+        if (clientId != null && !clientId.isBlank()) {
+            System.setProperty("mialu.ms.clientId.override", clientId.trim());
+        } else {
+            System.clearProperty("mialu.ms.clientId.override");
+        }
+
+        String tenant = settings.oauthTenant();
+        if (tenant != null && !tenant.isBlank()) {
+            System.setProperty("mialu.ms.tenant.override", tenant.trim());
+        } else {
+            System.clearProperty("mialu.ms.tenant.override");
+        }
     }
 
     public void shutdown() {

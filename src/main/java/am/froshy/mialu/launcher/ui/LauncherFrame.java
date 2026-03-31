@@ -50,6 +50,8 @@ public final class LauncherFrame extends JFrame {
     private final JTextField idField       = new JTextField();
     private final JTextField nameField     = new JTextField();
     private final JTextField usernameField = new JTextField("Steve");
+    private final JTextField oauthClientIdField = new JTextField("");
+    private final JTextField oauthTenantField = new JTextField("consumers");
     private final JComboBox<String> profileModeField = new JComboBox<>(new String[]{"INSTANCIA MANUAL", "IMPORTAR MODPACK"});
     private final JComboBox<String> versionField = new JComboBox<>(new String[]{"1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.2", "1.18.2", "1.16.5", "1.12.2"});
     private final JComboBox<String> loaderTypeField = new JComboBox<>(new String[]{"VANILLA", "FORGE", "NEOFORGE", "FABRIC", "QUILT"});
@@ -468,6 +470,8 @@ public final class LauncherFrame extends JFrame {
         ));
 
         addFormField(form, "Nickname global:", usernameField);
+        addFormField(form, "Microsoft Client ID (opcional):", oauthClientIdField);
+        addFormField(form, "Microsoft Tenant:", oauthTenantField);
         JCheckBox preferPremiumCheck = new JCheckBox("Usar sesion premium si esta disponible");
         preferPremiumCheck.setOpaque(false);
         preferPremiumCheck.setForeground(C_TEXT);
@@ -1348,8 +1352,12 @@ public final class LauncherFrame extends JFrame {
             SwingUtilities.invokeLater(() -> {
                 Object username = settings.get("username");
                 Object preferPremium = settings.get("preferPremium");
+                Object oauthClientId = settings.get("oauthClientId");
+                Object oauthTenant = settings.get("oauthTenant");
                 usernameField.setText(username == null ? "Steve" : username.toString());
                 preferPremiumCheck.setSelected(!Boolean.FALSE.equals(preferPremium));
+                oauthClientIdField.setText(oauthClientId == null ? "" : oauthClientId.toString());
+                oauthTenantField.setText(oauthTenant == null ? "consumers" : oauthTenant.toString());
             });
         });
     }
@@ -1364,23 +1372,84 @@ public final class LauncherFrame extends JFrame {
             return;
         }
         runAsync(() -> {
-            apiClient.setGlobalUserSettings(username, preferPremium);
+            apiClient.setGlobalUserSettings(
+                    username,
+                    preferPremium,
+                    oauthClientIdField.getText().trim(),
+                    oauthTenantField.getText().trim()
+            );
             SwingUtilities.invokeLater(() -> appendOutput("[Config] Nickname global guardado: " + username));
         });
     }
 
     private void startMicrosoftLogin() {
         runAsync(() -> {
-            var login = apiClient.startMicrosoftBrowserLogin();
-            openMicrosoftVerificationUrl(login.authorizationUrl());
+            int maxAttempts = 2;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                var login = apiClient.startMicrosoftBrowserLogin();
+                openMicrosoftVerificationUrl(login.authorizationUrl());
 
-            SwingUtilities.invokeLater(() -> appendOutput("[Premium] Esperando inicio de sesion en el navegador..."));
+                int currentAttempt = attempt;
+                SwingUtilities.invokeLater(() -> appendOutput("[Premium] Esperando inicio de sesion en el navegador... (intento "
+                        + currentAttempt + "/" + maxAttempts + ")"));
 
-            var session = apiClient.completeMicrosoftBrowserLogin(login.operationId());
-            SwingUtilities.invokeLater(() -> {
-                appendOutput("[Premium] Login completado: " + session.playerName());
-                refreshMicrosoftSession();
-            });
+                try {
+                    var session = apiClient.completeMicrosoftBrowserLogin(login.operationId());
+                    SwingUtilities.invokeLater(() -> {
+                        appendOutput("[Premium] Login completado: " + session.playerName());
+                        refreshMicrosoftSession();
+                    });
+                    return;
+                } catch (Exception ex) {
+                    String message = ex.getMessage() == null ? "" : ex.getMessage();
+                    if (message.contains("MS_RETRY_AUTOMATIC") && attempt < maxAttempts) {
+                        SwingUtilities.invokeLater(() -> appendOutput(
+                                "[Premium] Reintentando login automaticamente con cliente alternativo..."));
+                        continue;
+                    }
+
+                    // Fallback 100% automatico: si Microsoft bloquea consentimiento, seguir en modo offline.
+                    if (isMicrosoftConsentBlocked(message)) {
+                        applyAutomaticOfflineFallback();
+                        return;
+                    }
+                    throw ex;
+                }
+            }
+        });
+    }
+
+    private boolean isMicrosoftConsentBlocked(String message) {
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String m = message.toLowerCase();
+        return m.contains("first party")
+                || m.contains("users are not permitted to consent")
+                || m.contains("pre-authorization")
+                || m.contains("consentimiento")
+                || m.contains("aadsts65001");
+    }
+
+    private void applyAutomaticOfflineFallback() {
+        runAsync(() -> {
+            try {
+                String username = usernameField.getText().trim();
+                if (!isValidMinecraftUsername(username)) {
+                    username = "Steve";
+                }
+                String oauthClientId = oauthClientIdField.getText().trim();
+                String oauthTenant = oauthTenantField.getText().trim();
+                apiClient.setGlobalUserSettings(username, false, oauthClientId, oauthTenant);
+                SwingUtilities.invokeLater(() -> {
+                    appendOutput("[Premium] Microsoft bloquea esta cuenta para consentimiento. ");
+                    appendOutput("[Premium] Se activo automaticamente modo offline para que puedas seguir usando el launcher.");
+                    microsoftStatusLbl.setText("Premium: offline (auto)");
+                    microsoftStatusLbl.setForeground(C_DIM);
+                });
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> appendOutput("[Premium] No se pudo activar fallback offline automatico: " + ex.getMessage()));
+            }
         });
     }
 
@@ -1391,12 +1460,14 @@ public final class LauncherFrame extends JFrame {
         try {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 Desktop.getDesktop().browse(URI.create(url));
+            } else {
+                appendOutput("[Premium] No se pudo abrir navegador automaticamente. URL: " + url);
             }
         } catch (Exception ex) {
             appendOutput("[Premium] No se pudo abrir el navegador automaticamente: " + ex.getMessage());
+            appendOutput("[Premium] Abre manualmente esta URL: " + url);
         }
     }
-
 
     private void logoutMicrosoft() {
         runAsync(() -> {
@@ -1407,6 +1478,7 @@ public final class LauncherFrame extends JFrame {
             });
         });
     }
+
     private static JPanel fixedHeight(JPanel p, int h) {
         p.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
         p.setMinimumSize(new Dimension(0, h));
@@ -1532,5 +1604,4 @@ public final class LauncherFrame extends JFrame {
         });
     }
 }
-
 

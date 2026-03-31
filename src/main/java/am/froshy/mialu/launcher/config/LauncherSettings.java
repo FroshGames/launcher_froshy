@@ -15,17 +15,21 @@ public record LauncherSettings(
         String lastDownloadedAssetName,
         String lastDownloadedFile,
         String globalUsername,
-        boolean preferPremiumLogin
+        boolean preferPremiumLogin,
+        String oauthClientId,
+        String oauthTenant
 ) {
     public LauncherSettings {
         if (consolePollIntervalMs <= 0) consolePollIntervalMs = 600;
         if (launchPollIntervalMs  <= 0) launchPollIntervalMs  = 300;
         if (progressThresholdPct  <= 0) progressThresholdPct  = 1;
         if (globalUsername == null || globalUsername.isBlank()) globalUsername = "Steve";
+        if (oauthClientId == null) oauthClientId = "";
+        if (oauthTenant == null || oauthTenant.isBlank()) oauthTenant = "consumers";
     }
 
     public static LauncherSettings defaults() {
-        return new LauncherSettings(false, 600, 300, 1, null, "", "", "", "Steve", true);
+        return new LauncherSettings(false, 600, 300, 1, null, "", "", "", "Steve", true, "", "consumers");
     }
 
     public LauncherSettings withPerformanceMode(boolean perf) {
@@ -39,7 +43,9 @@ public record LauncherSettings(
                 lastDownloadedAssetName,
                 lastDownloadedFile,
                 globalUsername,
-                preferPremiumLogin
+                preferPremiumLogin,
+                oauthClientId,
+                oauthTenant
         );
     }
 
@@ -54,7 +60,9 @@ public record LauncherSettings(
                 lastDownloadedAssetName,
                 lastDownloadedFile,
                 globalUsername,
-                preferPremiumLogin
+                preferPremiumLogin,
+                oauthClientId,
+                oauthTenant
         );
     }
 
@@ -69,7 +77,9 @@ public record LauncherSettings(
                 assetName == null ? "" : assetName,
                 file == null ? "" : file,
                 globalUsername,
-                preferPremiumLogin
+                preferPremiumLogin,
+                oauthClientId,
+                oauthTenant
         );
     }
 
@@ -84,7 +94,26 @@ public record LauncherSettings(
                 lastDownloadedAssetName,
                 lastDownloadedFile,
                 username,
-                preferPremium
+                preferPremium,
+                oauthClientId,
+                oauthTenant
+        );
+    }
+
+    public LauncherSettings withOAuthConfig(String clientId, String tenant) {
+        return new LauncherSettings(
+                performanceMode,
+                consolePollIntervalMs,
+                launchPollIntervalMs,
+                progressThresholdPct,
+                lastUpdateCheckAt,
+                lastDownloadedVersion,
+                lastDownloadedAssetName,
+                lastDownloadedFile,
+                globalUsername,
+                preferPremiumLogin,
+                clientId == null ? "" : clientId.trim(),
+                (tenant == null || tenant.isBlank()) ? "consumers" : tenant.trim()
         );
     }
 }
