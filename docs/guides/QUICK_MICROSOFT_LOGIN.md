@@ -1,52 +1,99 @@
-# 🚀 Guía Rápida - Login Microsoft OAuth Fixed
+# 🚀 Guía Rápida - Login Microsoft OAuth
 
-## ✅ ¿Qué se Arregló?
+## ✅ ¿Qué es Login Microsoft?
 
-El error `Invalid_request: The provided value for the input parameter 'redirect_uri' is not valid` ha sido **completamente solucionado**.
+El launcher soporta login con cuentas Microsoft para acceso **Premium** a Minecraft.
 
-El launcher ahora:
-- ✅ Abre el navegador automáticamente
-- ✅ Captura el callback de Microsoft correctamente
-- ✅ Sincroniza la sesión Premium automáticamente
-- ✅ Sin configuración requerida
+## 🎯 Cómo Usar (3 pasos)
 
-## 🎯 Cómo Usar
-
-### Paso 1: Descargar o Compilar
+### 1️⃣ Abre el Launcher
 ```bash
-# Si ya compilaste
-java -jar target/launcher_mialu.jar
+# Windows
+launcher_microsoft.bat
 
-# O copia el JAR generado a donde lo quieras
+# Linux/Mac
+./launcher_microsoft.sh
 ```
 
-### Paso 2: Hacer Clic en "Login con Microsoft"
-- Se abre el navegador automáticamente
+### 2️⃣ Haz Clic en "Login Microsoft"
+- Se abrirá tu navegador automáticamente
 - Inicia sesión con tu cuenta de Microsoft
 
-### Paso 3: ¡Listo!
-- El launcher captura el callback automáticamente
-- Tu sesión Premium está sincronizada
+### 3️⃣ ¡Listo!
+- El launcher sincroniza automáticamente
+- Tu nombre aparecerá en "Premium"
 
-## 🔧 Configuración Avanzada (Opcional)
+---
 
-Si necesitas un Client ID personalizado:
+## 🔧 Opciones Avanzadas
 
-**Windows (PowerShell):**
-```powershell
-$env:MIALU_MS_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
-java -jar launcher_mialu.jar
-```
-
-**Linux/Mac:**
+### Usar Cliente ID Personalizado
 ```bash
-export MIALU_MS_CLIENT_ID="04b07795-8ddb-461a-bbee-02f9e1bf7b46"
-java -jar launcher_mialu.jar
+# Windows
+launcher_microsoft.bat 62e8121e-6311-4c99-a649-305c93a77f92
+
+# Linux/Mac
+./launcher_microsoft.sh 62e8121e-6311-4c99-a649-305c93a77f92
 ```
 
-## 🆘 Problemas Comunes
+### Variable de Entorno
+```bash
+# Windows
+set MIALU_MS_CLIENT_ID=04b07795-8ddb-461a-bbee-02f9e1bf7b46
 
-### Puerto 3000 en uso
+# Linux/Mac
+export MIALU_MS_CLIENT_ID="04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+```
+
+---
+
+## ❌ Problemas Frecuentes
+
+| Problema | Solución |
+|----------|----------|
+| `unauthorized_client` | El launcher intenta automáticamente con cliente alternativo. Si sigue fallando, contacta a soporte. |
+| No se abre navegador | Busca la URL en la consola del launcher y abre manualmente |
+| Error `redirect_uri` | Verifica que tengas `http://localhost:3000/` en Azure Portal |
+| Cuentas de trabajo | **NO funciona** con cuentas de trabajo/escuela. Usa cuenta personal (Outlook, Hotmail) |
+| Timeout | Completa el login dentro de 5 minutos |
+
+**📖 Para más detalles:** Ver `TROUBLESHOOTING_OAUTH.md`
+
+---
+
+## 📋 Requisitos
+
+- ✅ Cuenta Microsoft personal (Outlook, Hotmail, Live, etc)
+- ✅ Licencia de Minecraft Java Edition
+- ✅ Conexión a internet
+- ✅ Navegador web instalado
+
+**❌ NO funciona con:**
+- Cuentas de trabajo/escuela
+- Cuentas Xbox Game Pass
+- Cuentas sin licencia de Minecraft Java
+
+---
+
+## 🔐 Seguridad
+
+- ✅ Credenciales **nunca se almacenan**
+- ✅ Solo se guarda **token encriptado**
+- ✅ Login en **servidores oficiales de Microsoft**
+- ✅ Usa **PKCE** para seguridad
+
+---
+
+## 📚 Documentación Completa
+
+- **Configuración Detallada**: `CONFIGURACION_CLIENTE_AZURE.md`
+- **Troubleshooting Avanzado**: `TROUBLESHOOTING_OAUTH.md`
+- **Referencia Técnica**: `REFERENCIA_TECNICA_OAUTH.md`
+
+---
+
+*Versión: 0.6+*
+*Última actualización: 2026-04-02*
 ```bash
 # Opción 1: Cierra lo que está usando el puerto
 # Opción 2: Usa otro puerto con Client ID personalizado

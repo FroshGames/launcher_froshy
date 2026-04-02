@@ -36,11 +36,16 @@ public final class MicrosoftAuthService {
     private static final URI MC_LOGIN_URI = URI.create("https://api.minecraftservices.com/authentication/login_with_xbox");
     private static final URI MC_PROFILE_URI = URI.create("https://api.minecraftservices.com/minecraft/profile");
 
-    // Cliente publico mejorado para aplicaciones de escritorio (desktop app)
-    // Este cliente está diseñado para flujos OAuth nativos y soporta localhost redirect
-    private static final String DEFAULT_CLIENT_ID = "389b1b32-b5d5-43b2-bf1a-76cb27cae1e1";
-    // Cliente alternativo: usado cuando el primero falla por problemas de consentimiento
-    private static final String ALT_PUBLIC_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
+    // Cliente publico que está habilitado para consumidores en Azure
+    private static final String DEFAULT_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
+    // Cliente alternativo (no recomendado pues no está habilitado para consumidores)
+    private static final String ALT_PUBLIC_CLIENT_ID = "389b1b32-b5d5-43b2-bf1a-76cb27cae1e1";
+    // CONFIGURACION PERSONALIZADA DE CLIENTE:
+    // Para usar tu propio cliente ID de Azure (ej: 62e8121e-6311-4c99-a649-305c93a77f92):
+    // - Opción 1: Establecer variable de entorno MIALU_MS_CLIENT_ID=<tu_client_id>
+    // - Opción 2: Establecer propiedad JVM: -Dmialu.ms.clientId=<tu_client_id>
+    // - Opción 3: Variable de entorno FROSHY_MS_CLIENT_ID=<tu_client_id> (legacy)
+    // El redirect_uri debe estar registrado en Azure Portal como: http://localhost:3000/
     private static final String PRIMARY_SCOPE = "XboxLive.signin offline_access";
     private static final String FALLBACK_SCOPE = "XboxLive.signin";
     private static final long LOGIN_EXPIRY_SECONDS = 300;
@@ -60,6 +65,7 @@ public final class MicrosoftAuthService {
     private volatile MicrosoftOAuthCallbackServer callbackServer;
     private volatile String preferredPublicClientId;
     private volatile String preferredScope;
+    private volatile String preferredTenant;
 
     public MicrosoftAuthService(LauncherConfig config, MicrosoftAuthStore store) {
         this.http = HttpClient.newBuilder()
@@ -73,11 +79,11 @@ public final class MicrosoftAuthService {
         this.oauthTenant = readOAuthTenant();
         this.session = store.load().orElse(null);
 
-        String fallbackRedirect = "http://localhost:" + config.internalApiPort() + "/";
+        String fallbackRedirect = buildRedirectUri(config);
         String resolvedRedirect = fallbackRedirect;
 
-        // Con client_id público intentamos loopback en 3000; si falla, usamos el callback interno.
-        if (DEFAULT_CLIENT_ID.equals(clientId)) {
+        // Con client_id compatible con loopback intentamos callback dedicado en 3000.
+        if (supportsLoopbackRedirect(clientId)) {
             try {
                 this.callbackServer = new MicrosoftOAuthCallbackServer();
                 this.callbackServer.start();
@@ -90,6 +96,7 @@ public final class MicrosoftAuthService {
 
         this.preferredPublicClientId = this.clientId;
         this.preferredScope = PRIMARY_SCOPE;
+        this.preferredTenant = this.oauthTenant;
         this.redirectUri = resolvedRedirect;
     }
 
@@ -100,17 +107,25 @@ public final class MicrosoftAuthService {
     private String readClientId() {
         String preferred = System.getenv("MIALU_MS_CLIENT_ID");
         if (preferred != null && !preferred.isBlank()) {
-            return preferred.trim();
+            return normalizeClientId(preferred);
         }
         String legacy = System.getenv("FROSHY_MS_CLIENT_ID");
         if (legacy != null && !legacy.isBlank()) {
-            return legacy.trim();
+            return normalizeClientId(legacy);
         }
         String jvmProp = System.getProperty("mialu.ms.clientId", "");
         if (!jvmProp.isBlank()) {
-            return jvmProp.trim();
+            return normalizeClientId(jvmProp);
         }
         return DEFAULT_CLIENT_ID;
+    }
+
+    private String normalizeClientId(String rawClientId) {
+        String normalized = rawClientId == null ? "" : rawClientId.trim();
+        if (normalized.isBlank()) {
+            return DEFAULT_CLIENT_ID;
+        }
+        return normalized;
     }
 
     private String readOAuthTenant() {
@@ -119,16 +134,29 @@ public final class MicrosoftAuthService {
             env = System.getenv("FROSHY_MS_TENANT");
         }
         if (env == null || env.isBlank()) {
-            env = System.getProperty("mialu.ms.tenant", "consumers");
+            env = System.getProperty("mialu.ms.tenant", "common");
         }
-        String tenant = env == null ? "consumers" : env.trim();
-        return tenant.isBlank() ? "consumers" : tenant;
+        String tenant = env == null ? "common" : env.trim();
+        return tenant.isBlank() ? "common" : tenant;
     }
 
     private URI oauthEndpoint(String suffix) {
         String tenantOverride = System.getProperty("mialu.ms.tenant.override", "").trim();
-        String effectiveTenant = tenantOverride.isBlank() ? oauthTenant : tenantOverride;
+        String effectiveTenant = tenantOverride.isBlank()
+                ? ((preferredTenant == null || preferredTenant.isBlank()) ? oauthTenant : preferredTenant)
+                : tenantOverride;
         return URI.create(OAUTH_BASE + "/" + effectiveTenant + "/oauth2/v2.0/" + suffix);
+    }
+
+    private String resolveTenantForAttempt() {
+        String tenantOverride = System.getProperty("mialu.ms.tenant.override", "").trim();
+        if (!tenantOverride.isBlank()) {
+            return tenantOverride;
+        }
+        if (preferredTenant == null || preferredTenant.isBlank()) {
+            preferredTenant = oauthTenant;
+        }
+        return preferredTenant;
     }
 
     private boolean isCustomClientIdConfigured() {
@@ -169,6 +197,7 @@ public final class MicrosoftAuthService {
             return false;
         }
         preferredPublicClientId = ALT_PUBLIC_CLIENT_ID;
+        preferredTenant = "consumers";
         return true;
     }
 
@@ -192,8 +221,10 @@ public final class MicrosoftAuthService {
 
         String selectedClientId = resolveClientIdForAttempt();
         String selectedScope = preferredScope == null || preferredScope.isBlank() ? PRIMARY_SCOPE : preferredScope;
+        String selectedTenant = resolveTenantForAttempt();
         String authorizationUrl = buildAuthorizationUrl(state, codeChallenge, selectedClientId, selectedScope);
-        PendingBrowserLogin pending = new PendingBrowserLogin(operationId, state, codeVerifier, expiresAt, selectedClientId, selectedScope);
+        PendingBrowserLogin pending = new PendingBrowserLogin(
+                operationId, state, codeVerifier, expiresAt, selectedClientId, selectedScope, selectedTenant);
         pendingByState.put(state, pending);
         pendingByOperation.put(operationId, pending);
 
@@ -209,7 +240,7 @@ public final class MicrosoftAuthService {
         long timeoutMs = Math.max(1000L, Duration.between(Instant.now(), pending.expiresAt()).toMillis());
         
         // Si estamos usando el servidor de callback en puerto 3000, esperar allí
-        if (callbackServer != null && DEFAULT_CLIENT_ID.equals(clientId)) {
+        if (callbackServer != null && supportsLoopbackRedirect(pending.oauthClientId())) {
             try {
                 Optional<MicrosoftOAuthCallbackServer.OAuthCallbackData> callback = callbackServer.waitForCallback(timeoutMs);
                 if (callback.isEmpty()) {
@@ -256,12 +287,35 @@ public final class MicrosoftAuthService {
             
             // Si es error de first-party y no estamos ya con cliente alternativo
             if ((lowered.contains("first party") || lowered.contains("pre-authorization") || lowered.contains("consent"))
+                    && "consumers".equalsIgnoreCase(pending.oauthTenant())) {
+                preferredTenant = "common";
+                throw new IllegalStateException("MS_RETRY_AUTOMATIC:Microsoft rechazo consentimiento en tenant consumers. "
+                        + "Reintentando automaticamente con tenant common.");
+            }
+
+            if ((lowered.contains("first party") || lowered.contains("pre-authorization") || lowered.contains("consent"))
                     && !ALT_PUBLIC_CLIENT_ID.equals(pending.oauthClientId())
                     && switchToAlternateClient(pending.oauthClientId())) {
                 throw new IllegalStateException("MS_RETRY_AUTOMATIC:Consentimiento bloqueado para este cliente. "
                         + "Reintentando con cliente Microsoft alternativo.");
             }
+
+            // Detectar error unauthorized_client y cambiar de cliente si es posible
+            if ((lowered.contains("unauthorized_client") || lowered.contains("aadsts700016") || lowered.contains("not enabled for consumers"))
+                    && !ALT_PUBLIC_CLIENT_ID.equals(pending.oauthClientId())
+                    && switchToAlternateClient(pending.oauthClientId())) {
+                throw new IllegalStateException("MS_RETRY_AUTOMATIC:Client ID no habilitado para consumidores. "
+                        + "Reintentando con cliente Microsoft alternativo.");
+            }
             
+            if ((lowered.contains("unauthorized_client") || lowered.contains("aadsts700016") || lowered.contains("not enabled for consumers"))
+                    && !DEFAULT_CLIENT_ID.equals(pending.oauthClientId())) {
+                preferredPublicClientId = DEFAULT_CLIENT_ID;
+                preferredTenant = "common";
+                throw new IllegalStateException("MS_RETRY_AUTOMATIC:Client ID no habilitado para consumidores. "
+                        + "Reintentando con cliente por defecto.");
+            }
+
             // Si es error de scope y podemos intentar sin offline_access
             if (lowered.contains("offline_access") && PRIMARY_SCOPE.equals(pending.oauthScope())) {
                 preferredScope = FALLBACK_SCOPE;
@@ -329,13 +383,38 @@ public final class MicrosoftAuthService {
             
             // Si es error de first-party, intentar con cliente alternativo
             if ((lowered.contains("first party") || lowered.contains("pre-authorization") || lowered.contains("consent"))
+                    && "consumers".equalsIgnoreCase(pending.oauthTenant())) {
+                preferredTenant = "common";
+                String msg = "Microsoft rechazo consentimiento en tenant consumers. Reintentando con tenant common...";
+                pending.future().completeExceptionally(new IllegalStateException("MS_RETRY_AUTOMATIC:" + msg));
+                return callbackHtml(false, msg);
+            }
+
+            if ((lowered.contains("first party") || lowered.contains("pre-authorization") || lowered.contains("consent"))
                     && !ALT_PUBLIC_CLIENT_ID.equals(pending.oauthClientId())
                     && switchToAlternateClient(pending.oauthClientId())) {
                 String msg = "Microsoft bloqueo el consentimiento. Reintentando con cliente alternativo...";
                 pending.future().completeExceptionally(new IllegalStateException("MS_RETRY_AUTOMATIC:" + msg));
                 return callbackHtml(false, msg);
             }
+
+            if ((lowered.contains("unauthorized_client") || lowered.contains("aadsts700016") || lowered.contains("not enabled for consumers"))
+                    && !ALT_PUBLIC_CLIENT_ID.equals(pending.oauthClientId())
+                    && switchToAlternateClient(pending.oauthClientId())) {
+                String msg = "Client ID no habilitado para consumidores. Reintentando con cliente alternativo...";
+                pending.future().completeExceptionally(new IllegalStateException("MS_RETRY_AUTOMATIC:" + msg));
+                return callbackHtml(false, msg);
+            }
             
+            if ((lowered.contains("unauthorized_client") || lowered.contains("aadsts700016") || lowered.contains("not enabled for consumers"))
+                    && !DEFAULT_CLIENT_ID.equals(pending.oauthClientId())) {
+                preferredPublicClientId = DEFAULT_CLIENT_ID;
+                preferredTenant = "common";
+                String msg = "Client ID no habilitado para consumidores. Reintentando con cliente por defecto...";
+                pending.future().completeExceptionally(new IllegalStateException("MS_RETRY_AUTOMATIC:" + msg));
+                return callbackHtml(false, msg);
+            }
+
             String mapped = mapFirstPartyConsentError(detail);
             pending.future().completeExceptionally(new IllegalStateException(mapped));
             return callbackHtml(false, mapped);
@@ -582,6 +661,13 @@ public final class MicrosoftAuthService {
         String code = tokenError.path("error").asText("unknown");
         String desc = tokenError.path("error_description").asText("");
         String combined = (code + " " + desc).toLowerCase();
+        
+        // Incluir información de diagnóstico
+        String diagnostic = "\n\nInfo diagnóstica:\n"
+                + "- Client ID usado: " + clientId + "\n"
+                + "- Tenant: " + oauthTenant + "\n"
+                + "- Redirect URI: " + redirectUri + "\n"
+                + "- Ver: docs/oauth/TROUBLESHOOTING_OAUTH.md";
 
         // Detectar y manejar errores de first-party / consentimiento bloqueado
         if (combined.contains("first party") || combined.contains("pre-authorization")
@@ -589,23 +675,27 @@ public final class MicrosoftAuthService {
             return "La cuenta Microsoft no permitio el login automaticamente. "
                     + "Esto puede ocurrir con cuentas de trabajo/escuela. "
                     + "Solucion: Usa una cuenta Microsoft personal (Outlook, Hotmail) "
-                    + "o crea un Client ID propio registrando tu app en https://portal.azure.com";
+                    + "o crea un Client ID propio registrando tu app en https://portal.azure.com"
+                    + diagnostic;
         }
         if (combined.contains("unauthorized_client") || combined.contains("aadsts700016")) {
             return "Client ID de Microsoft invalido o no registrado para este flujo. "
-                    + "Configura MIALU_MS_CLIENT_ID con una app valida.";
+                    + "Intenta con: MIALU_MS_CLIENT_ID=04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+                    + diagnostic;
         }
         if (combined.contains("invalid_scope") || combined.contains("aadsts70011")) {
-            return "Scopes OAuth invalidos para este Client ID. Revisa la configuracion de la app en Azure.";
+            return "Scopes OAuth invalidos para este Client ID. Revisa la configuracion de la app en Azure."
+                    + diagnostic;
         }
         if (combined.contains("redirect_uri") || combined.contains("aadsts50011")) {
             return "redirect_uri invalido para este Client ID. Usa un Client ID compatible con localhost "
-                    + "o configura MIALU_MS_CLIENT_ID con su redirect_uri registrado.";
+                    + "o configura MIALU_MS_CLIENT_ID con su redirect_uri registrado."
+                    + diagnostic;
         }
         if (desc != null && !desc.isBlank()) {
-            return "Error OAuth Microsoft: " + desc;
+            return "Error OAuth Microsoft: " + desc + diagnostic;
         }
-        return "Error OAuth Microsoft: " + code;
+        return "Error OAuth Microsoft: " + code + diagnostic;
     }
 
     private String mapFirstPartyConsentError(String detail) {
@@ -771,10 +861,12 @@ public final class MicrosoftAuthService {
             Instant expiresAt,
             String oauthClientId,
             String oauthScope,
+            String oauthTenant,
             CompletableFuture<MicrosoftSessionStatus> future
     ) {
-        private PendingBrowserLogin(String operationId, String state, String codeVerifier, Instant expiresAt, String oauthClientId, String oauthScope) {
-            this(operationId, state, codeVerifier, expiresAt, oauthClientId, oauthScope, new CompletableFuture<>());
+        private PendingBrowserLogin(String operationId, String state, String codeVerifier, Instant expiresAt,
+                                    String oauthClientId, String oauthScope, String oauthTenant) {
+            this(operationId, state, codeVerifier, expiresAt, oauthClientId, oauthScope, oauthTenant, new CompletableFuture<>());
         }
     }
 
@@ -796,6 +888,9 @@ public final class MicrosoftAuthService {
     ) {
     }
 }
+
+
+
 
 
 
