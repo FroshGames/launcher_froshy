@@ -83,6 +83,7 @@ public final class LauncherFrame extends JFrame {
     private CardLayout contentCards;
     private Point      dragOrigin;
     private JButton    deleteBtn;
+    private JScrollPane formScroll;
     public LauncherFrame(InternalApiClient apiClient, int apiPort, String launcherVersion, Runnable onClose) {
         super();
         this.apiClient       = apiClient;
@@ -364,16 +365,25 @@ public final class LauncherFrame extends JFrame {
         JLabel title = new JLabel("GESTION DE PERFILES");
         title.setFont(new Font("Dialog", Font.BOLD, 13)); title.setForeground(C_CYAN);
 
-        JPanel split = new JPanel(new GridLayout(1, 2, 10, 0));
+        // Split responsive: con JSplitPane para que se redimensione bien
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         split.setOpaque(false);
+        split.setDividerSize(2);
+        split.setDividerLocation(0.45);
+        split.setResizeWeight(0.45);
+        split.setContinuousLayout(true);
+        split.setPreferredSize(new Dimension(800, 400));
 
+        // Panel izquierdo: formulario con scroll
         JPanel left = new JPanel(new BorderLayout(6, 6));
         left.setOpaque(false);
         left.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+        left.setMinimumSize(new Dimension(300, 200));
 
         JPanel form = new JPanel(new GridLayout(0, 1, 0, 6));
         form.setOpaque(false);
         form.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        form.setPreferredSize(new Dimension(280, 600));
         profileModeField.setEditable(false);
         versionField.setEditable(false);
         loaderTypeField.setEditable(false);
@@ -391,11 +401,18 @@ public final class LauncherFrame extends JFrame {
         addFormField(form, "JVM Args:", jvmArgsField);
         addFormField(form, "Game Args:", gameArgsField);
         addFormField(form, "Compat. modpacks:", modpackCompatField);
-        left.add(form, BorderLayout.CENTER);
+        
+        formScroll = new JScrollPane(form);
+        formScroll.setBorder(BorderFactory.createEmptyBorder());
+        formScroll.getViewport().setBackground(new Color(0x08, 0x08, 0x1e));
+        formScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        left.add(formScroll, BorderLayout.CENTER);
 
+        // Panel derecho: lista de perfiles
         JPanel right = new JPanel(new BorderLayout(6, 6));
         right.setOpaque(false);
         right.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+        right.setMinimumSize(new Dimension(300, 200));
         profilesEditorList.setOpaque(true);
         profilesEditorList.setBackground(new Color(0x08, 0x08, 0x1e));
         profilesEditorList.setForeground(C_TEXT);
@@ -420,8 +437,15 @@ public final class LauncherFrame extends JFrame {
         editorScroll.getViewport().setBackground(new Color(0x08, 0x08, 0x1e));
         right.add(editorScroll, BorderLayout.CENTER);
 
-        split.add(left);
-        split.add(right);
+        split.setLeftComponent(left);
+        split.setRightComponent(right);
+        
+        // Establecer el divider location DESPUÉS de agregar componentes para que el tamaño sea correcto
+        SwingUtilities.invokeLater(() -> {
+            if (split.getWidth() > 0) {
+                split.setDividerLocation(0.45);
+            }
+        });
 
         JButton newBtn = buildNeonBtn("Nuevo perfil", C_CYAN, 140, 30);
         saveBtn = buildNeonBtn("GUARDAR CAMBIOS", C_MAGENTA, 210, 38);
@@ -861,6 +885,15 @@ public final class LauncherFrame extends JFrame {
         refreshLoaderSuggestions();
         applyProfileModeUi();
         if (saveBtn != null) { saveBtn.setText("CREAR INSTANCIA"); saveBtn.repaint(); }
+        
+        // Asegurar que el formulario sea visible: hacer scroll al inicio y enfocar el campo de nombre
+        SwingUtilities.invokeLater(() -> {
+            if (formScroll != null) {
+                formScroll.getVerticalScrollBar().setValue(0);
+            }
+            nameField.requestFocus();
+            nameField.selectAll();
+        });
     }
 
     private void applyProfileModeUi() {
