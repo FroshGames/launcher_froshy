@@ -1,0 +1,48 @@
+# PowerShell script to create an installer using jpackage
+# Requires Java 14+ (or Java 17 like the project uses) and WiX Toolset on Windows for EXE installers
+
+Write-Host "Realizando limpieza y empaquetado del Launcher..."
+mvn clean package
+
+$pom = [xml](Get-Content "pom.xml")
+$AppVersion = $pom.project.version.Trim()
+Write-Host "Version sincronizada del proyecto: $AppVersion"
+
+$AppDest = "build-bundle"
+$MainJar = "launcher_mialu.jar"
+$MainClass = "am.froshy.mialu.launcher.LauncherUiApplication"
+
+Write-Host "Preparando entorno de instalador..."
+if (Test-Path $AppDest) { Remove-Item -Recurse -Force $AppDest }
+New-Item -ItemType Directory -Force -Path $AppDest | Out-Null
+Copy-Item "target/launcher_mialu.jar" -Destination "$AppDest/$MainJar"
+
+if (-not (Test-Path "$AppDest/$MainJar")) {
+    Write-Host "Error: No se encontró el JAR '$MainJar' en target/." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "JAR encontrado: $MainJar"
+
+Write-Host "Generando Instalador EXE con jpackage..."
+
+# jpackage tomara el JRE de Java 17 y el uber-jar para crear un instalador .exe
+jpackage --type exe `
+    --input $AppDest `
+    --main-jar $MainJar `
+    --main-class $MainClass `
+    --name "mialulauncher" `
+    --app-version $AppVersion `
+    --icon "src\main\resources\assets\icons\icon.ico" `
+    --win-dir-chooser `
+    --win-menu `
+    --win-shortcut
+
+if ($?) {
+    if (Test-Path "mialulauncher-$AppVersion.exe") {
+        Rename-Item -Path "mialulauncher-$AppVersion.exe" -NewName "mialuLauncherInstaller-$AppVersion.exe" -Force
+    }
+    Write-Host "¡Instalador creado exitosamente!" -ForegroundColor Green
+} else {
+    Write-Host "Hubo un error al ejecutar jpackage. (asegurate de tener WiX Toolset v3 instalado en Windows)." -ForegroundColor Red
+}

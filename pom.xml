@@ -6,7 +6,7 @@
 
     <groupId>am.froshy.mialu</groupId>
     <artifactId>launcher_mialu</artifactId>
-    <version>0.7-DevUpdate</version>
+    <version>0.9.2</version>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -96,6 +96,50 @@
                                 </transformer>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Crear ejecutable EXE con Launch4j -->
+            <plugin>
+                <groupId>com.akathist.maven.plugins.launch4j</groupId>
+                <artifactId>launch4j-maven-plugin</artifactId>
+                <version>2.5.0</version>
+                <executions>
+                    <execution>
+                        <id>l4j-clui</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>launch4j</goal>
+                        </goals>
+                        <configuration>
+                            <headerType>gui</headerType>
+                            <outfile>${project.build.directory}/mialulauncher.exe</outfile>
+                            <jar>${project.build.directory}/${project.build.finalName}.jar</jar>
+                            <errTitle>Launcher Error</errTitle>
+                            <classPath>
+                                <mainClass>am.froshy.mialu.launcher.LauncherUiApplication</mainClass>
+                                <addDependencies>false</addDependencies>
+                            </classPath>
+                            <jre>
+                                <minVersion>17.0.0</minVersion>
+                                <opts>
+                                    <opt>-Dfile.encoding=UTF-8</opt>
+                                </opts>
+                            </jre>
+                            <icon>src/main/resources/assets/icons/icon.ico</icon>
+                            <versionInfo>
+                                <fileVersion>0.9.2.0</fileVersion>
+                                <txtFileVersion>0.9.2</txtFileVersion>
+                                <fileDescription>Mialu Launcher</fileDescription>
+                                <copyright>2026 Mialu Studio</copyright>
+                                <productVersion>0.9.2.0</productVersion>
+                                <txtProductVersion>0.9.2</txtProductVersion>
+                                <productName>Mialu Launcher</productName>
+                                <internalName>mialulauncher</internalName>
+                                <originalFilename>mialulauncher.exe</originalFilename>
+                            </versionInfo>
                         </configuration>
                     </execution>
                 </executions>
