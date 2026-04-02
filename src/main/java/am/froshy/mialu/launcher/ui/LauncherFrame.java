@@ -24,7 +24,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-/** Launcher UI - diseño cyberpunk/neon inspirado en imagen de referencia. */
+import am.froshy.mialu.launcher.application.GitHubUpdater;
+/** Launcher UI - diseo cyberpunk/neon inspirado en imagen de referencia. */
 public final class LauncherFrame extends JFrame {
     private static final int MAX_CONSOLE_LINES = 2500;
     private static final int TRIM_TO_LINES = 1800;
@@ -90,6 +91,14 @@ public final class LauncherFrame extends JFrame {
         this.onClose         = onClose;
         this.launcherVersion = launcherVersion != null ? launcherVersion : "?";
         this.mojangSkinProvider = new MojangSkinProvider();
+        
+        try {
+            java.net.URL iconUrl = getClass().getResource("/assets/icons/icon.png");
+            if (iconUrl != null) {
+                setIconImage(javax.imageio.ImageIO.read(iconUrl));
+            }
+        } catch (Exception ignored) {}
+
         buildUi();
         refreshProfiles();
         refreshHealth();
@@ -101,7 +110,7 @@ public final class LauncherFrame extends JFrame {
         setSize(1060, 620);
         setMinimumSize(new Dimension(900, 540));
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         JPanel root = new JPanel(new BorderLayout(0, 0)) {
             @Override protected void paintComponent(Graphics g) {
                 g.setColor(C_BG);
@@ -145,7 +154,7 @@ public final class LauncherFrame extends JFrame {
         };
         bar.setOpaque(false);
         bar.setPreferredSize(new Dimension(0, 34));
-        JLabel title = new JLabel("MINECRAFT LAUNCHER", JLabel.CENTER);
+        JLabel title = new JLabel("MIALU LAUNCHER", JLabel.CENTER);
         title.setFont(new Font("Dialog", Font.BOLD, 13));
         title.setForeground(C_TEXT);
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 6));
@@ -451,10 +460,13 @@ public final class LauncherFrame extends JFrame {
         saveBtn = buildNeonBtn("GUARDAR CAMBIOS", C_MAGENTA, 210, 38);
         deleteBtn = buildNeonBtn("Eliminar instancia", new Color(0xff, 0x44, 0x44), 190, 34);
         JButton refreshBtn = buildNeonBtn("Refrescar", C_BORDER, 110, 30);
+        JButton folderBtn = buildNeonBtn("Abrir ubicacion", C_GREEN, 130, 30);
+
         newBtn.addActionListener(e -> startCreateProfileMode());
         saveBtn.addActionListener(e -> upsertProfile());
         deleteBtn.addActionListener(e -> deleteSelectedProfile());
         refreshBtn.addActionListener(e -> refreshProfiles());
+        folderBtn.addActionListener(e -> openSelectedInstanceFolder());
         profileModeField.addActionListener(e -> applyProfileModeUi());
         modpackCompatField.addActionListener(e -> updateModpackCompatibilityFromUi());
         versionField.addActionListener(e -> refreshLoaderSuggestions());
@@ -462,6 +474,7 @@ public final class LauncherFrame extends JFrame {
 
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         btnRow.setOpaque(false);
+        btnRow.add(folderBtn);
         btnRow.add(refreshBtn);
         btnRow.add(newBtn);
         btnRow.add(deleteBtn);
@@ -559,6 +572,21 @@ public final class LauncherFrame extends JFrame {
         panel.add(makeIconBtn("\u2699", "SETTINGS", e -> contentCards.show(contentStack, "SETTINGS")));
         panel.add(Box.createVerticalStrut(10));
         panel.add(makeIconBtn("\u25CE", "PROFILE",  e -> contentCards.show(contentStack, "PROFILES")));
+        panel.add(Box.createVerticalStrut(10));
+        panel.add(makeIconBtn("\u21BA", "UPDATE", e -> {
+            UIManager.put("OptionPane.background", C_BG);
+            UIManager.put("Panel.background", C_BG);
+            UIManager.put("OptionPane.messageForeground", C_TEXT);
+            UIManager.put("Button.background", C_MAGENTA);
+            UIManager.put("Button.foreground", Color.WHITE);
+            JOptionPane.showMessageDialog(this, "Buscando actualizaciones en segundo plano...\nEl launcher se reiniciará si encuentra una nueva versión.", "Mensaje", JOptionPane.INFORMATION_MESSAGE);
+            UIManager.put("OptionPane.background", null);
+            UIManager.put("Panel.background", null);
+            UIManager.put("OptionPane.messageForeground", null);
+            UIManager.put("Button.background", null);
+            UIManager.put("Button.foreground", null);
+            runAsync(() -> GitHubUpdater.checkForUpdatesAndInstall(launcherVersion));
+        }));
         panel.add(Box.createVerticalGlue());
         panel.add(Box.createVerticalStrut(80));
         JLabel sparkle = new JLabel("\u2726", JLabel.CENTER);
@@ -790,6 +818,34 @@ public final class LauncherFrame extends JFrame {
                 contentCards.show(contentStack, "HOME");
             });
         });
+    }
+
+    private void openSelectedInstanceFolder() {
+        MinecraftProfile selected = profilesEditorList.getSelectedValue();
+        if (selected == null) {
+            selected = profilesList.getSelectedValue();
+        }
+        if (selected == null) {
+            JOptionPane.showMessageDialog(this,
+                    "Selecciona un perfil para abrir su ubicacion.",
+                    "Abrir ubicacion",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String safeId = selected.id().replaceAll("[^a-zA-Z0-9._-]", "_");
+        java.nio.file.Path legacyBase = java.nio.file.Paths.get(System.getProperty("user.home"), ".froshy-launcher");
+        java.nio.file.Path preferredBase = java.nio.file.Paths.get(System.getProperty("user.home"), ".mialu-launcher");
+        java.nio.file.Path base = java.nio.file.Files.exists(preferredBase) || !java.nio.file.Files.exists(legacyBase) ? preferredBase : legacyBase;
+        java.nio.file.Path instanceDir = base.resolve("game").resolve("instances").resolve(safeId);
+        
+        try {
+            java.nio.file.Files.createDirectories(instanceDir);
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(instanceDir.toFile());
+            }
+        } catch (Exception ex) {
+            appendOutput("No se pudo abrir el directorio de la instancia: " + ex.getMessage());
+        }
     }
 
     private void installDeleteContextMenu(JList<MinecraftProfile> list) {

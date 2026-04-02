@@ -43,7 +43,7 @@ launcher_mialu.bat
 bash scripts/download-jdk.sh
 
 # 2. Ejecutar launcher
-bash launcher_mialu.sh
+bash launcher_mialu.exe
 ```
 
 ## 📖 Documentación Completa

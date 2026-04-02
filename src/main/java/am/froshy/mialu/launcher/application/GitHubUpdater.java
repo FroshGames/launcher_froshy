@@ -40,9 +40,10 @@ public class GitHubUpdater {
             if (!latestVersion.equals(currentVersion)) {
                 JsonNode assets = root.get("assets");
                 for (JsonNode asset : assets) {
-                    if (asset.get("name").asText().endsWith(".exe")) {
+                    String assetName = asset.get("name").asText().toLowerCase();
+                    if (assetName.endsWith(".exe")) {
                         String downloadUrl = asset.get("browser_download_url").asText();
-                        downloadAndApplyUpdate(downloadUrl);
+                        downloadAndApplyUpdate(downloadUrl, assetName);
                         break;
                     }
                 }
@@ -52,22 +53,29 @@ public class GitHubUpdater {
         }
     }
 
-    private static void downloadAndApplyUpdate(String downloadUrl) throws Exception {
+    private static void downloadAndApplyUpdate(String downloadUrl, String fileName) throws Exception {
         System.out.println("Descargando actualizacion desde: " + downloadUrl);
-        Path updateFile = Paths.get(System.getProperty("java.io.tmpdir"), "launcher_update.exe");
+        Path updateFile = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
         
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET().build();
         httpClient.send(request, HttpResponse.BodyHandlers.ofFile(updateFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE));
         
         System.out.println("Actualizacion descargada. Preparando reemplazo...");
-        applyUpdate(updateFile);
+        applyUpdate(updateFile, fileName);
     }
 
-    private static void applyUpdate(Path updateFile) throws IOException {
-        String currentExe = System.getProperty("sun.java.command"); // A veces no retorna el exe, asume nombre del ejecutable
+    private static void applyUpdate(Path updateFile, String fileName) throws IOException {
+        if (fileName.contains("installer") || fileName.contains("setup")) {
+            // Es un instalador, solo lo ejecutamos
+            Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "\"\"", "\"" + updateFile.toAbsolutePath() + "\""});
+            System.exit(0);
+            return;
+        }
+
+        // Es un portable o ejecutable directo, lo reemplazamos
         // Fallback robusto para encontrar el exe actual
         Path currentExeDir = Paths.get(".").toAbsolutePath().normalize();
-        Path targetExe = currentExeDir.resolve("launcher_mialu.exe");
+        Path targetExe = currentExeDir.resolve("mialulauncher.exe");
 
         // Crea un bat temporal para reemplazar el archivo mientras se cierra el launcher
         Path batPath = Paths.get(System.getProperty("java.io.tmpdir"), "update_launcher.bat");
@@ -80,7 +88,7 @@ public class GitHubUpdater {
         Files.writeString(batPath, batContent);
 
         // Ejecutar BAT y cerrar
-        Runtime.getRuntime().exec("cmd /c start \"\" \"" + batPath.toAbsolutePath() + "\"");
+        Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "\"\"", "\"" + batPath.toAbsolutePath() + "\""});
         System.exit(0);
     }
 }
