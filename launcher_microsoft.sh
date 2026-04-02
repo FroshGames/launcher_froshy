@@ -1,16 +1,11 @@
 #!/bin/bash
-# Script para ejecutar el launcher con configuración de Microsoft OAuth
+# Script para ejecutar el launcher con configuracion de Microsoft OAuth
 # Uso: ./launcher_microsoft.sh [CLIENT_ID_OPCIONAL]
 
-if [ -z "$1" ]; then
-    # Usar cliente por defecto
-    echo "Ejecutando launcher con cliente ID por defecto..."
-    export MIALU_MS_CLIENT_ID="04b07795-8ddb-461a-bbee-02f9e1bf7b46"
-else
-    # Usar cliente personalizado
-    echo "Ejecutando launcher con cliente ID personalizado: $1"
-    export MIALU_MS_CLIENT_ID="$1"
-fi
+# Nuevo metodo oficial: login premium via Device Code de MinecraftAuth.
+# Limpiar overrides antiguos evita unauthorized_client por apps no habilitadas.
+unset MIALU_MS_CLIENT_ID
+unset FROSHY_MS_CLIENT_ID
 
 # Ejecutar el launcher
 if [ -f "launcher_froshy.sh" ]; then
@@ -21,4 +16,3 @@ else
     echo "Error: No se encontro launcher.sh"
     exit 1
 fi
-

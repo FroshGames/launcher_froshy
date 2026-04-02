@@ -50,8 +50,8 @@ public final class MicrosoftAuthStore {
             String xuid,
             String playerName,
             String playerUuid,
-            java.time.Instant minecraftExpiresAt
+            java.time.Instant minecraftExpiresAt,
+            String sessionJson
     ) {
     }
 }
-

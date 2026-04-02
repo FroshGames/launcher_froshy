@@ -523,9 +523,13 @@ public final class LauncherService {
     private void applyOAuthOverrides(LauncherSettings settings) {
         String clientId = settings.oauthClientId();
         if (clientId != null && !clientId.isBlank()) {
-            System.setProperty("mialu.ms.clientId.override", clientId.trim());
+            String normalized = clientId.trim();
+            // Keep both keys for compatibility with old and new code paths.
+            System.setProperty("mialu.ms.clientId.override", normalized);
+            System.setProperty("mialu.ms.clientId", normalized);
         } else {
             System.clearProperty("mialu.ms.clientId.override");
+            System.clearProperty("mialu.ms.clientId");
         }
 
         String tenant = settings.oauthTenant();
@@ -973,5 +977,4 @@ public final class LauncherService {
         }
     }
 }
-
 
