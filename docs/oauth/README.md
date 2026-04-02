@@ -4,26 +4,27 @@
 
 ---
 
-## 📋 Documentos
+## 📋 Documentos Principales
 
-- **MICROSOFT_LOGIN_FIX.md** - Solución del error OAuth
+- **SOLUCION_FIRST_PARTY_ERROR.md** ⭐ - Solución del error "First Party Application"
 - **MICROSOFT_LOGIN_CONFIG.md** - Configuración completa
 - **REFERENCIA_TECNICA_OAUTH.md** - Referencia técnica profunda
-- **README_MICROSOFT_OAUTH_FIXED.md** - Resumen ejecutivo
+- **MICROSOFT_LOGIN_FIX.md** - Historial de problemas resueltos
 
 ---
 
 ## 🎯 Contenido
 
-### MICROSOFT_LOGIN_FIX.md
-- Problema identificado
-- Solución implementada
-- Componentes clave
-- Características
+### SOLUCION_FIRST_PARTY_ERROR.md ⭐ IMPORTANTE
+**Si estás viendo error "First Party Application", lee AQUÍ**
+- Problema: "first party application" durante login
+- Soluciones rápidas (3 opciones)
+- Cómo registrar Client ID propio en Azure
+- Contactar administrador de Azure
 
 ### MICROSOFT_LOGIN_CONFIG.md
 - Opciones de configuración
-- Client ID público vs personalizado
+- Client ID por defecto mejorado: `389b1b32-b5d5-43b2-bf1a-76cb27cae1e1`
 - Pasos para registrar en Azure
 - Troubleshooting avanzado
 
@@ -34,10 +35,6 @@
 - Endpoints utilizados
 - Manejo de errores
 
-### README_MICROSOFT_OAUTH_FIXED.md
-- Resumen rápido
-- Cómo usar
-- Problemas comunes
 
 ---
 

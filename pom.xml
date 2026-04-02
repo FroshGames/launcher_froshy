@@ -6,7 +6,7 @@
 
     <groupId>am.froshy.mialu</groupId>
     <artifactId>launcher_mialu</artifactId>
-    <version>0.5-SNAPSHOT</version>
+    <version>0.7-DevUpdate</version>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -17,6 +17,12 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>net.raphimc</groupId>
+            <artifactId>MinecraftAuth</artifactId>
+            <version>4.1.1</version>
+        </dependency>
+
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

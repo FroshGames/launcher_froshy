@@ -475,7 +475,7 @@ public final class LauncherFrame extends JFrame {
         JCheckBox preferPremiumCheck = new JCheckBox("Usar sesion premium si esta disponible");
         preferPremiumCheck.setOpaque(false);
         preferPremiumCheck.setForeground(C_TEXT);
-        preferPremiumCheck.setFont(new Font("Dialog", Font.PLAIN, 11));
+        preferPremiumCheck.setEnabled(false);
         addFormField(form, "Cuenta:", preferPremiumCheck);
 
         JButton saveSettingsBtn = buildNeonBtn("Guardar configuracion", C_BORDER, 220, 34);

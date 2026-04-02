@@ -6,28 +6,29 @@
 **Descripción:** Client ID de Azure AD para autenticación con Microsoft
 
 **Valores:**
-- `04b07795-8ddb-461a-bbee-02f9e1bf7b46` (Público - Por defecto)
+- `389b1b32-b5d5-43b2-bf1a-76cb27cae1e1` (Público - Optimizado para apps de escritorio)
 - Cualquier Client ID personalizado registrado en Azure
 
 **Uso:**
 ```bash
 # Windows (PowerShell)
-$env:MIALU_MS_CLIENT_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+$env:MIALU_MS_CLIENT_ID = "389b1b32-b5d5-43b2-bf1a-76cb27cae1e1"
 
 # Windows (CMD)
-set MIALU_MS_CLIENT_ID=04b07795-8ddb-461a-bbee-02f9e1bf7b46
+set MIALU_MS_CLIENT_ID=389b1b32-b5d5-43b2-bf1a-76cb27cae1e1
 
 # Linux/Mac
-export MIALU_MS_CLIENT_ID="04b07795-8ddb-461a-bbee-02f9e1bf7b46"
+export MIALU_MS_CLIENT_ID="389b1b32-b5d5-43b2-bf1a-76cb27cae1e1"
 
 # Java Properties
-java -Dmialu.ms.clientId=04b07795-8ddb-461a-bbee-02f9e1bf7b46 -jar launcher_mialu.jar
+java -Dmialu.ms.clientId=389b1b32-b5d5-43b2-bf1a-76cb27cae1e1 -jar launcher_mialu.jar
 ```
 
 **Notas:**
-- Si no se especifica, usa el Client ID público
+- Si no se especifica, usa el Client ID público optimizado para desktop
 - Debe estar registrado en Azure con el redirect_uri correcto
 - Se busca en orden: MIALU_MS_CLIENT_ID → FROSHY_MS_CLIENT_ID → propiedad Java → Default
+- Si tienes problemas de "first party application", usa una cuenta Microsoft personal (no corporativa)
 
 ---
 
