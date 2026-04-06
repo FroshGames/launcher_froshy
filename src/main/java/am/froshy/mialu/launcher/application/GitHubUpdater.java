@@ -15,7 +15,7 @@ import java.nio.file.StandardOpenOption;
 
 public class GitHubUpdater {
 
-    private static final String GITHUB_API_URL = "https://api.github.com/repos/FroshGames/launcher_froshy/releases/latest";
+    private static final String GITHUB_API_URL = "https://api.github.com/repos/FroshGames/launcher_froshy/releases";
     private static final HttpClient httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build();
     private static final ObjectMapper mapper = new ObjectMapper();
 
@@ -32,24 +32,47 @@ public class GitHubUpdater {
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) return;
+            if (response.statusCode() != 200) {
+                System.err.println("Error verificando updates: HTTP " + response.statusCode());
+                javax.swing.JOptionPane.showMessageDialog(null, "Error verificando updates (HTTP " + response.statusCode() + ").");
+                return;
+            }
 
-            JsonNode root = mapper.readTree(response.body());
-            String latestVersion = root.get("tag_name").asText();
+            JsonNode rootArray = mapper.readTree(response.body());
+            if (!rootArray.isArray() || rootArray.isEmpty()) {
+                System.out.println("No se encontraron releases.");
+                javax.swing.JOptionPane.showMessageDialog(null, "No se encontraron releases en GitHub.");
+                return;
+            }
+            
+            JsonNode latestRelease = rootArray.get(0);
+            String latestVersion = latestRelease.get("tag_name").asText();
+            
+            String cleanLatest = latestVersion.replaceAll("^v|V", "");
+            String cleanCurrent = currentVersion.replaceAll("^v|V", "");
 
-            if (!latestVersion.equals(currentVersion)) {
-                JsonNode assets = root.get("assets");
+            if (!cleanLatest.equals(cleanCurrent)) {
+                JsonNode assets = latestRelease.get("assets");
+                boolean foundAsset = false;
                 for (JsonNode asset : assets) {
                     String assetName = asset.get("name").asText().toLowerCase();
                     if (assetName.endsWith(".exe")) {
+                        foundAsset = true;
                         String downloadUrl = asset.get("browser_download_url").asText();
+                        javax.swing.JOptionPane.showMessageDialog(null, "Actualización " + latestVersion + " encontrada. Descargando ahora...");
                         downloadAndApplyUpdate(downloadUrl, assetName);
                         break;
                     }
                 }
+                if (!foundAsset) {
+                    javax.swing.JOptionPane.showMessageDialog(null, "Se encontró la versión " + latestVersion + " pero sin instalador o exe.");
+                }
+            } else {
+                javax.swing.JOptionPane.showMessageDialog(null, "Ya tienes la última versión instalada (" + currentVersion + ").");
             }
         } catch (Exception e) {
             e.printStackTrace();
+            javax.swing.JOptionPane.showMessageDialog(null, "Excepción al buscar updates: " + e.getMessage());
         }
     }
 
