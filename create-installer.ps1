@@ -15,10 +15,12 @@ $MainClass = "am.froshy.mialu.launcher.LauncherUiApplication"
 Write-Host "Preparando entorno de instalador..."
 if (Test-Path $AppDest) { Remove-Item -Recurse -Force $AppDest }
 New-Item -ItemType Directory -Force -Path $AppDest | Out-Null
-Copy-Item "target/launcher_mialu.jar" -Destination "$AppDest/$MainJar"
 
-if (-not (Test-Path "$AppDest/$MainJar")) {
-    Write-Host "Error: No se encontró el JAR '$MainJar' en target/." -ForegroundColor Red
+$shadedJar = Get-ChildItem -Path "target" -Filter "launcher_mialu.jar" | Select-Object -First 1
+if ($shadedJar) {
+    Copy-Item $shadedJar.FullName -Destination "$AppDest/$MainJar"
+} else {
+    Write-Host "Error: No se encontró el JAR 'launcher_mialu-*-shaded.jar' en target/." -ForegroundColor Red
     exit 1
 }
 
@@ -39,10 +41,16 @@ jpackage --type exe `
     --win-shortcut
 
 if ($?) {
-    if (Test-Path "mialulauncher-$AppVersion.exe") {
-        Rename-Item -Path "mialulauncher-$AppVersion.exe" -NewName "mialuLauncherInstaller-$AppVersion.exe" -Force
+    $installerName = "mialulauncher-$AppVersion.exe"
+    if (Test-Path $installerName) {
+        Rename-Item -Path $installerName -NewName "mialuLauncherInstaller-$AppVersion.exe" -Force
+    } else {
+        # Check if jpackage ignored version in name
+        if (Test-Path "mialulauncher.exe") {
+            Rename-Item -Path "mialulauncher.exe" -NewName "mialuLauncherInstaller-$AppVersion.exe" -Force
+        }
     }
-    Write-Host "¡Instalador creado exitosamente!" -ForegroundColor Green
+    Write-Host "Instalador creado exitosamente!" -ForegroundColor Green
 } else {
     Write-Host "Hubo un error al ejecutar jpackage. (asegurate de tener WiX Toolset v3 instalado en Windows)." -ForegroundColor Red
 }

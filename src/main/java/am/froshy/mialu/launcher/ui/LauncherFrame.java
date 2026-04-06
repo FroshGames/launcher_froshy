@@ -51,8 +51,8 @@ public final class LauncherFrame extends JFrame {
     private final JTextField idField       = new JTextField();
     private final JTextField nameField     = new JTextField();
     private final JTextField usernameField = new JTextField("Steve");
-    private final JTextField oauthClientIdField = new JTextField("");
-    private final JTextField oauthTenantField = new JTextField("consumers");
+    private JButton msLoginBtn;
+    private JButton msLogoutBtn;
     private final JComboBox<String> profileModeField = new JComboBox<>(new String[]{"INSTANCIA MANUAL", "IMPORTAR MODPACK"});
     private final JComboBox<String> versionField = new JComboBox<>(new String[]{"1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.2", "1.18.2", "1.16.5", "1.12.2"});
     private final JComboBox<String> loaderTypeField = new JComboBox<>(new String[]{"VANILLA", "FORGE", "NEOFORGE", "FABRIC", "QUILT"});
@@ -507,19 +507,12 @@ public final class LauncherFrame extends JFrame {
         ));
 
         addFormField(form, "Nickname global:", usernameField);
-        addFormField(form, "Microsoft Client ID (opcional):", oauthClientIdField);
-        addFormField(form, "Microsoft Tenant:", oauthTenantField);
-        JCheckBox preferPremiumCheck = new JCheckBox("Usar sesion premium si esta disponible");
-        preferPremiumCheck.setOpaque(false);
-        preferPremiumCheck.setForeground(C_TEXT);
-        preferPremiumCheck.setEnabled(false);
-        addFormField(form, "Cuenta:", preferPremiumCheck);
 
         JButton saveSettingsBtn = buildNeonBtn("Guardar configuracion", C_BORDER, 220, 34);
-        JButton msLoginBtn = buildNeonBtn("Login Microsoft", C_GREEN, 170, 30);
-        JButton msLogoutBtn = buildNeonBtn("Logout Premium", new Color(0xff, 0x99, 0x33), 165, 30);
+        msLoginBtn = buildNeonBtn("Login Microsoft", C_GREEN, 170, 30);
+        msLogoutBtn = buildNeonBtn("Logout Premium", new Color(0xff, 0x99, 0x33), 165, 30);
 
-        saveSettingsBtn.addActionListener(e -> saveGlobalUserSettings(preferPremiumCheck.isSelected()));
+        saveSettingsBtn.addActionListener(e -> saveGlobalUserSettings());
         msLoginBtn.addActionListener(e -> startMicrosoftLogin());
         msLogoutBtn.addActionListener(e -> logoutMicrosoft());
 
@@ -536,7 +529,7 @@ public final class LauncherFrame extends JFrame {
         panel.add(form, BorderLayout.CENTER);
         panel.add(actions, BorderLayout.SOUTH);
 
-        loadGlobalUserSettings(preferPremiumCheck);
+        loadGlobalUserSettings();
         return panel;
     }
     private JPanel buildConsoleCard() {
@@ -1410,10 +1403,9 @@ public final class LauncherFrame extends JFrame {
             Map<String, Object> settings = apiClient.getGlobalUserSettings();
 
             if (status.connected()) {
-                boolean preferPremium = !Boolean.FALSE.equals(settings.get("preferPremium"));
                 String currentUsername = settings.get("username") == null ? "Steve" : settings.get("username").toString();
-                if (preferPremium && !status.playerName().equalsIgnoreCase(currentUsername)) {
-                    settings = apiClient.setGlobalUserSettings(status.playerName(), true);
+                if (!status.playerName().equalsIgnoreCase(currentUsername)) {
+                    settings = apiClient.setGlobalUserSettings(status.playerName(), true, "", "");
                 }
             }
 
@@ -1422,9 +1414,13 @@ public final class LauncherFrame extends JFrame {
                 if (status.connected()) {
                     microsoftStatusLbl.setText("Premium: " + status.playerName());
                     microsoftStatusLbl.setForeground(C_GREEN);
+                    if (msLoginBtn != null) msLoginBtn.setVisible(false);
+                    if (msLogoutBtn != null) msLogoutBtn.setVisible(true);
                 } else {
                     microsoftStatusLbl.setText("Premium: offline");
                     microsoftStatusLbl.setForeground(C_DIM);
+                    if (msLoginBtn != null) msLoginBtn.setVisible(true);
+                    if (msLogoutBtn != null) msLogoutBtn.setVisible(false);
                 }
 
                 Object username = effectiveSettings.get("username");
@@ -1435,23 +1431,17 @@ public final class LauncherFrame extends JFrame {
         });
     }
 
-    private void loadGlobalUserSettings(JCheckBox preferPremiumCheck) {
+    private void loadGlobalUserSettings() {
         runAsync(() -> {
             Map<String, Object> settings = apiClient.getGlobalUserSettings();
             SwingUtilities.invokeLater(() -> {
                 Object username = settings.get("username");
-                Object preferPremium = settings.get("preferPremium");
-                Object oauthClientId = settings.get("oauthClientId");
-                Object oauthTenant = settings.get("oauthTenant");
                 usernameField.setText(username == null ? "Steve" : username.toString());
-                preferPremiumCheck.setSelected(!Boolean.FALSE.equals(preferPremium));
-                oauthClientIdField.setText(oauthClientId == null ? "" : oauthClientId.toString());
-                oauthTenantField.setText(oauthTenant == null ? "consumers" : oauthTenant.toString());
             });
         });
     }
 
-    private void saveGlobalUserSettings(boolean preferPremium) {
+    private void saveGlobalUserSettings() {
         String username = usernameField.getText().trim();
         if (!isValidMinecraftUsername(username)) {
             JOptionPane.showMessageDialog(this,
@@ -1463,9 +1453,9 @@ public final class LauncherFrame extends JFrame {
         runAsync(() -> {
             apiClient.setGlobalUserSettings(
                     username,
-                    preferPremium,
-                    oauthClientIdField.getText().trim(),
-                    oauthTenantField.getText().trim()
+                    true,
+                    "",
+                    ""
             );
             SwingUtilities.invokeLater(() -> appendOutput("[Config] Nickname global guardado: " + username));
         });
@@ -1527,9 +1517,7 @@ public final class LauncherFrame extends JFrame {
                 if (!isValidMinecraftUsername(username)) {
                     username = "Steve";
                 }
-                String oauthClientId = oauthClientIdField.getText().trim();
-                String oauthTenant = oauthTenantField.getText().trim();
-                apiClient.setGlobalUserSettings(username, false, oauthClientId, oauthTenant);
+                apiClient.setGlobalUserSettings(username, false, "", "");
                 SwingUtilities.invokeLater(() -> {
                     appendOutput("[Premium] Microsoft bloquea esta cuenta para consentimiento. ");
                     appendOutput("[Premium] Se activo automaticamente modo offline para que puedas seguir usando el launcher.");

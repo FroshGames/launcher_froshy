@@ -58,8 +58,8 @@ public class GitHubUpdater {
         Path updateFile = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
         
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET().build();
-        httpClient.send(request, HttpResponse.BodyHandlers.ofFile(updateFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE));
-        
+        httpClient.send(request, HttpResponse.BodyHandlers.ofFile(updateFile));
+
         System.out.println("Actualizacion descargada. Preparando reemplazo...");
         applyUpdate(updateFile, fileName);
     }
