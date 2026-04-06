@@ -24,23 +24,27 @@ if ($shadedJar) {
     exit 1
 }
 
-Write-Host "JAR encontrado: $MainJar"
+Write-Host "JAR encontrado: $MainJar" -ForegroundColor Green
+Write-Host "Generando Instalador EXE con jpackage (puede tardar un momento)..." -ForegroundColor Yellow
 
-Write-Host "Generando Instalador EXE con jpackage..."
+$jpackageArgs = @(
+    "--type", "exe",
+    "--input", $AppDest,
+    "--main-jar", $MainJar,
+    "--main-class", $MainClass,
+    "--name", "MialuLauncher",
+    "--app-version", $AppVersion,
+    "--icon", "src\main\resources\assets\icons\icon.ico",
+    "--win-dir-chooser",
+    "--win-console",
+    "--win-menu",
+    "--win-shortcut",
+    "--win-upgrade-uuid", "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+)
 
-# jpackage tomara el JRE de Java 17 y el uber-jar para crear un instalador .exe
-jpackage --type exe `
-    --input $AppDest `
-    --main-jar $MainJar `
-    --main-class $MainClass `
-    --name "MialuLauncher" `
-    --app-version $AppVersion `
-    --icon "src\main\resources\assets\icons\icon.ico" `
-    --win-dir-chooser `
-    --win-menu `
-    --win-shortcut
+& jpackage $jpackageArgs
 
-if ($?) {
+if ($LASTEXITCODE -eq 0) {
     $installerName = "mialulauncher-$AppVersion.exe"
     if (Test-Path $installerName) {
         Rename-Item -Path $installerName -NewName "mialuLauncherInstaller-$AppVersion.exe" -Force

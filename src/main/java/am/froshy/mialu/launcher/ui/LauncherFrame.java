@@ -113,7 +113,7 @@ public final class LauncherFrame extends JFrame {
         setSize(1060, 620);
         setMinimumSize(new Dimension(900, 540));
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         JPanel root = new JPanel(new BorderLayout(0, 0)) {
             @Override protected void paintComponent(Graphics g) {
                 g.setColor(C_BG);
@@ -140,9 +140,13 @@ public final class LauncherFrame extends JFrame {
         });
         
         addWindowListener(new WindowAdapter() {
-            @Override public void windowClosed(WindowEvent e) {
+            @Override public void windowClosing(WindowEvent e) {
                 executor.shutdownNow();
                 onClose.run();
+            }
+            @Override public void windowClosed(WindowEvent e) {
+                // Ensure everything dies when the window is finally disposed
+                System.exit(0);
             }
         });
     }

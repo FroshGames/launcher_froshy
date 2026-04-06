@@ -44,7 +44,8 @@ jpackage --type exe ^
     --win-dir-chooser ^
     --win-console ^
     --win-menu ^
-    --win-shortcut
+    --win-shortcut ^
+    --win-upgrade-uuid 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d
 
 if %ERRORLEVEL% EQU 0 (
     if exist "mialulauncher-%APP_VERSION%.exe" (

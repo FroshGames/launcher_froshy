@@ -725,6 +725,21 @@ public final class ModpackInstaller {
         if (Files.exists(exe)) {
             return exe.toAbsolutePath().toString();
         }
+        // Fallbacks for jpackage environments
+        exe = java.nio.file.Paths.get(javaHome, "java.exe");
+        if (Files.exists(exe)) {
+            return exe.toAbsolutePath().toString();
+        }
+        // Try system JAVA_HOME
+        String sysJavaHome = System.getenv("JAVA_HOME");
+        if (sysJavaHome != null && !sysJavaHome.trim().isEmpty()) {
+            exe = java.nio.file.Paths.get(sysJavaHome, "bin", "java.exe");
+            if (Files.exists(exe)) {
+                return exe.toAbsolutePath().toString();
+            }
+        }
+        
+        // Final desperate fallback: java from path
         return "java";
     }
 
@@ -867,7 +882,4 @@ public final class ModpackInstaller {
 
     private record DownloadItem(String url, Path dest, String sha1, String sha512, long size) {}
 }
-
-
-
 
