@@ -18,10 +18,16 @@ set MAIN_CLASS=am.froshy.mialu.launcher.LauncherUiApplication
 echo Preparando entorno del instalador...
 if exist "%APP_DEST%" rd /s /q "%APP_DEST%"
 mkdir "%APP_DEST%"
-copy /Y "target\%MAIN_JAR%" "%APP_DEST%\%MAIN_JAR%" > nul
+
+for %%f in (target\launcher_mialu.jar) do (
+    copy /Y "%%f" "%APP_DEST%\%MAIN_JAR%" > nul
+    goto :jar_copied
+)
+
+:jar_copied
 
 if not exist "%APP_DEST%\%MAIN_JAR%" (
-    echo Error: No se encontro el JAR '%MAIN_JAR%' en target.
+    echo Error: No se encontro el JAR '%MAIN_JAR%' en %APP_DEST%.
     exit /b 1
 )
 
@@ -32,15 +38,21 @@ jpackage --type exe ^
     --input %APP_DEST% ^
     --main-jar %MAIN_JAR% ^
     --main-class %MAIN_CLASS% ^
-    --name "mialulauncher" ^
+    --name "MialuLauncher" ^
     --app-version %APP_VERSION% ^
     --icon "src\main\resources\assets\icons\icon.ico" ^
     --win-dir-chooser ^
+    --win-console ^
     --win-menu ^
-    --win-shortcut
+    --win-shortcut ^
+    --win-upgrade-uuid 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d
 
 if %ERRORLEVEL% EQU 0 (
-    if exist "mialulauncher-%APP_VERSION%.exe" ren "mialulauncher-%APP_VERSION%.exe" "mialuLauncherInstaller-%APP_VERSION%.exe"
+    if exist "mialulauncher-%APP_VERSION%.exe" (
+        ren "mialulauncher-%APP_VERSION%.exe" "mialuLauncherInstaller-%APP_VERSION%.exe"
+    ) else if exist "mialulauncher.exe" (
+        ren "mialulauncher.exe" "mialuLauncherInstaller-%APP_VERSION%.exe"
+    )
     echo Instalador creado exitosamente!
 ) else (
     echo Hubo un error al ejecutar jpackage. Asegurate de tener WiX Toolset v3 instalado en Windows.

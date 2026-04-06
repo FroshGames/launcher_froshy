@@ -16,7 +16,9 @@ MAIN_CLASS="am.froshy.mialu.launcher.LauncherUiApplication"
 echo "Preparando entorno del instalador..."
 rm -rf $APP_DEST
 mkdir -p $APP_DEST
-cp target/$MAIN_JAR $APP_DEST/
+
+SHADED_JAR=$(ls target/launcher_mialu.jar | head -n 1)
+cp $SHADED_JAR $APP_DEST/$MAIN_JAR
 
 if [ ! -f "$APP_DEST/$MAIN_JAR" ]; then
     echo "Error: No se encontró el JAR '$MAIN_JAR' en target/."
@@ -31,7 +33,7 @@ jpackage \
     --input $APP_DEST \
     --main-jar $MAIN_JAR \
     --main-class $MAIN_CLASS \
-    --name "mialulauncher" \
+    --name "MialuLauncher" \
     --app-version $APP_VERSION \
     --icon "src/main/resources/assets/icons/icon.png" \
     --linux-shortcut \

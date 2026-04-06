@@ -240,7 +240,13 @@ public final class LauncherService {
 
         // Construir comando completo
         List<String> cmd = new ArrayList<>();
-        cmd.add(profile.javaPath().isBlank() ? "java" : profile.javaPath());
+
+        String jExe = profile.javaPath();
+        if (jExe == null || jExe.trim().isEmpty() || "java".equals(jExe.trim())) {
+            jExe = resolveJavaExecutable();
+        }
+        cmd.add(jExe);
+
         // JVM args del perfil (memoria, etc.) van ANTES de los del sistema
         cmd.addAll(profile.jvmArgs());
         // JVM args de la instalación (classpath, library.path, etc.)
@@ -273,6 +279,22 @@ public final class LauncherService {
         } catch (IOException ex) {
             throw new IllegalStateException("No se pudo iniciar Minecraft: " + ex.getMessage(), ex);
         }
+    }
+
+    private String resolveJavaExecutable() {
+        String javaHome = System.getProperty("java.home");
+        java.nio.file.Path exe = java.nio.file.Paths.get(javaHome, "bin", "java.exe");
+        if (java.nio.file.Files.exists(exe)) return exe.toAbsolutePath().toString();
+        exe = java.nio.file.Paths.get(javaHome, "bin", "java");
+        if (java.nio.file.Files.exists(exe)) return exe.toAbsolutePath().toString();
+        exe = java.nio.file.Paths.get(javaHome, "java.exe");
+        if (java.nio.file.Files.exists(exe)) return exe.toAbsolutePath().toString();
+        String sysJavaHome = System.getenv("JAVA_HOME");
+        if (sysJavaHome != null && !sysJavaHome.trim().isEmpty()) {
+            exe = java.nio.file.Paths.get(sysJavaHome, "bin", "java.exe");
+            if (java.nio.file.Files.exists(exe)) return exe.toAbsolutePath().toString();
+        }
+        return "java";
     }
 
     /** Prepara la version del perfil y la lanza en un solo flujo. */
@@ -976,5 +998,5 @@ public final class LauncherService {
             return modpackPath != null;
         }
     }
-}
 
+}

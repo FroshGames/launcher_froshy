@@ -51,8 +51,8 @@ public final class LauncherFrame extends JFrame {
     private final JTextField idField       = new JTextField();
     private final JTextField nameField     = new JTextField();
     private final JTextField usernameField = new JTextField("Steve");
-    private final JTextField oauthClientIdField = new JTextField("");
-    private final JTextField oauthTenantField = new JTextField("consumers");
+    private JButton msLoginBtn;
+    private JButton msLogoutBtn;
     private final JComboBox<String> profileModeField = new JComboBox<>(new String[]{"INSTANCIA MANUAL", "IMPORTAR MODPACK"});
     private final JComboBox<String> versionField = new JComboBox<>(new String[]{"1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.2", "1.18.2", "1.16.5", "1.12.2"});
     private final JComboBox<String> loaderTypeField = new JComboBox<>(new String[]{"VANILLA", "FORGE", "NEOFORGE", "FABRIC", "QUILT"});
@@ -62,6 +62,9 @@ public final class LauncherFrame extends JFrame {
     private final JList<MinecraftProfile> profilesEditorList = new JList<>(profilesModel);
     private final JTextField jvmArgsField  = new JTextField("-Xmx2G");
     private final JTextField gameArgsField = new JTextField("");
+    private JLabel modpackPathLabel;
+    private JLabel modpackCompatLabel;
+    private JPanel modpackPickerPanel;
     private final JTextArea  outputArea    = new JTextArea();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JProgressBar phaseProgressBar = new JProgressBar(0, 100);
@@ -110,7 +113,7 @@ public final class LauncherFrame extends JFrame {
         setSize(1060, 620);
         setMinimumSize(new Dimension(900, 540));
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         JPanel root = new JPanel(new BorderLayout(0, 0)) {
             @Override protected void paintComponent(Graphics g) {
                 g.setColor(C_BG);
@@ -137,9 +140,13 @@ public final class LauncherFrame extends JFrame {
         });
         
         addWindowListener(new WindowAdapter() {
-            @Override public void windowClosed(WindowEvent e) {
+            @Override public void windowClosing(WindowEvent e) {
                 executor.shutdownNow();
                 onClose.run();
+            }
+            @Override public void windowClosed(WindowEvent e) {
+                // Ensure everything dies when the window is finally disposed
+                System.exit(0);
             }
         });
     }
@@ -406,11 +413,23 @@ public final class LauncherFrame extends JFrame {
         addFormField(form, "Version:", versionField);
         addFormField(form, "Loader:", loaderTypeField);
         addFormField(form, "Ver. Loader:", loaderVersionField);
-        addFormField(form, "Modpack (.mrpack/.zip):", buildModpackPickerField());
+        
+        modpackPathLabel = new JLabel("Modpack (.mrpack/.zip):");
+        modpackPathLabel.setFont(new Font("Dialog", Font.PLAIN, 11)); modpackPathLabel.setForeground(C_TEXT);
+        modpackPickerPanel = buildModpackPickerField();
+        form.add(modpackPathLabel); form.add(modpackPickerPanel);
+
         addFormField(form, "JVM Args:", jvmArgsField);
         addFormField(form, "Game Args:", gameArgsField);
-        addFormField(form, "Compat. modpacks:", modpackCompatField);
-        
+
+        modpackCompatLabel = new JLabel("Compat. modpacks:");
+        modpackCompatLabel.setFont(new Font("Dialog", Font.PLAIN, 11)); modpackCompatLabel.setForeground(C_TEXT);
+        modpackCompatField.setBackground(new Color(0x08, 0x08, 0x22));
+        modpackCompatField.setForeground(C_TEXT);
+        modpackCompatField.setFont(new Font("Dialog", Font.PLAIN, 11));
+        modpackCompatField.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+        form.add(modpackCompatLabel); form.add(modpackCompatField);
+
         formScroll = new JScrollPane(form);
         formScroll.setBorder(BorderFactory.createEmptyBorder());
         formScroll.getViewport().setBackground(new Color(0x08, 0x08, 0x1e));
@@ -507,19 +526,12 @@ public final class LauncherFrame extends JFrame {
         ));
 
         addFormField(form, "Nickname global:", usernameField);
-        addFormField(form, "Microsoft Client ID (opcional):", oauthClientIdField);
-        addFormField(form, "Microsoft Tenant:", oauthTenantField);
-        JCheckBox preferPremiumCheck = new JCheckBox("Usar sesion premium si esta disponible");
-        preferPremiumCheck.setOpaque(false);
-        preferPremiumCheck.setForeground(C_TEXT);
-        preferPremiumCheck.setEnabled(false);
-        addFormField(form, "Cuenta:", preferPremiumCheck);
 
         JButton saveSettingsBtn = buildNeonBtn("Guardar configuracion", C_BORDER, 220, 34);
-        JButton msLoginBtn = buildNeonBtn("Login Microsoft", C_GREEN, 170, 30);
-        JButton msLogoutBtn = buildNeonBtn("Logout Premium", new Color(0xff, 0x99, 0x33), 165, 30);
+        msLoginBtn = buildNeonBtn("Login Microsoft", C_GREEN, 170, 30);
+        msLogoutBtn = buildNeonBtn("Logout Premium", new Color(0xff, 0x99, 0x33), 165, 30);
 
-        saveSettingsBtn.addActionListener(e -> saveGlobalUserSettings(preferPremiumCheck.isSelected()));
+        saveSettingsBtn.addActionListener(e -> saveGlobalUserSettings());
         msLoginBtn.addActionListener(e -> startMicrosoftLogin());
         msLogoutBtn.addActionListener(e -> logoutMicrosoft());
 
@@ -536,7 +548,7 @@ public final class LauncherFrame extends JFrame {
         panel.add(form, BorderLayout.CENTER);
         panel.add(actions, BorderLayout.SOUTH);
 
-        loadGlobalUserSettings(preferPremiumCheck);
+        loadGlobalUserSettings();
         return panel;
     }
     private JPanel buildConsoleCard() {
@@ -742,6 +754,18 @@ public final class LauncherFrame extends JFrame {
             });
         });
     }
+    private String getJavaExecutable() {
+        String javaHome = System.getProperty("java.home");
+        java.nio.file.Path exe = java.nio.file.Paths.get(javaHome, "bin", "java");
+        if (!java.nio.file.Files.exists(exe)) {
+            exe = java.nio.file.Paths.get(javaHome, "bin", "java.exe");
+        }
+        if (java.nio.file.Files.exists(exe)) {
+            return exe.toAbsolutePath().toString();
+        }
+        return "java";
+    }
+
     private void upsertProfile() {
         boolean creating = editingProfileId == null;
         String name = nameField.getText().trim();
@@ -768,7 +792,7 @@ public final class LauncherFrame extends JFrame {
 
         List<String> effectiveGameArgs = splitArgs(gameArgsField.getText());
 
-        MinecraftProfile profile = new MinecraftProfile(effectiveId, name, "java", selectedComboValue(versionField, "1.20.1"),
+        MinecraftProfile profile = new MinecraftProfile(effectiveId, name, getJavaExecutable(), selectedComboValue(versionField, "1.20.1"),
                 splitArgs(jvmArgsField.getText()), effectiveGameArgs,
                 loaderType,
                 loaderVersion,
@@ -781,6 +805,23 @@ public final class LauncherFrame extends JFrame {
                 appendOutput((creating ? "Perfil creado: " : "Perfil actualizado: ") + saved.id());
                 refreshProfiles();
                 contentCards.show(contentStack, "HOME");
+
+                if (modpackMode) {
+                    UIManager.put("OptionPane.background", C_BG);
+                    UIManager.put("Panel.background", C_BG);
+                    UIManager.put("OptionPane.messageForeground", C_TEXT);
+                    UIManager.put("Button.background", C_MAGENTA);
+                    UIManager.put("Button.foreground", Color.WHITE);
+                    JOptionPane.showMessageDialog(LauncherFrame.this,
+                            "Modpack preparado para importacion.\n\nHaz clic en 'PLAY MINECRAFT' para comenzar la instalacion de mods y jugar.",
+                            "Importar Modpack",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    UIManager.put("OptionPane.background", null);
+                    UIManager.put("Panel.background", null);
+                    UIManager.put("OptionPane.messageForeground", null);
+                    UIManager.put("Button.background", null);
+                    UIManager.put("Button.foreground", null);
+                }
             });
         });
     }
@@ -972,6 +1013,11 @@ public final class LauncherFrame extends JFrame {
         applyFieldStyle(modpackCompatField, !manualMode);
         applyFieldStyle(jvmArgsField, true);
         applyFieldStyle(gameArgsField, true);
+
+        if (modpackPathLabel != null) modpackPathLabel.setVisible(!manualMode);
+        if (modpackPickerPanel != null) modpackPickerPanel.setVisible(!manualMode);
+        if (modpackCompatLabel != null) modpackCompatLabel.setVisible(!manualMode);
+        modpackCompatField.setVisible(!manualMode);
 
         if (saveBtn != null && editingProfileId == null) {
             saveBtn.setText(manualMode ? "CREAR INSTANCIA" : "IMPORTAR MODPACK");
@@ -1410,10 +1456,9 @@ public final class LauncherFrame extends JFrame {
             Map<String, Object> settings = apiClient.getGlobalUserSettings();
 
             if (status.connected()) {
-                boolean preferPremium = !Boolean.FALSE.equals(settings.get("preferPremium"));
                 String currentUsername = settings.get("username") == null ? "Steve" : settings.get("username").toString();
-                if (preferPremium && !status.playerName().equalsIgnoreCase(currentUsername)) {
-                    settings = apiClient.setGlobalUserSettings(status.playerName(), true);
+                if (!status.playerName().equalsIgnoreCase(currentUsername)) {
+                    settings = apiClient.setGlobalUserSettings(status.playerName(), true, "", "");
                 }
             }
 
@@ -1422,9 +1467,13 @@ public final class LauncherFrame extends JFrame {
                 if (status.connected()) {
                     microsoftStatusLbl.setText("Premium: " + status.playerName());
                     microsoftStatusLbl.setForeground(C_GREEN);
+                    if (msLoginBtn != null) msLoginBtn.setVisible(false);
+                    if (msLogoutBtn != null) msLogoutBtn.setVisible(true);
                 } else {
                     microsoftStatusLbl.setText("Premium: offline");
                     microsoftStatusLbl.setForeground(C_DIM);
+                    if (msLoginBtn != null) msLoginBtn.setVisible(true);
+                    if (msLogoutBtn != null) msLogoutBtn.setVisible(false);
                 }
 
                 Object username = effectiveSettings.get("username");
@@ -1435,23 +1484,17 @@ public final class LauncherFrame extends JFrame {
         });
     }
 
-    private void loadGlobalUserSettings(JCheckBox preferPremiumCheck) {
+    private void loadGlobalUserSettings() {
         runAsync(() -> {
             Map<String, Object> settings = apiClient.getGlobalUserSettings();
             SwingUtilities.invokeLater(() -> {
                 Object username = settings.get("username");
-                Object preferPremium = settings.get("preferPremium");
-                Object oauthClientId = settings.get("oauthClientId");
-                Object oauthTenant = settings.get("oauthTenant");
                 usernameField.setText(username == null ? "Steve" : username.toString());
-                preferPremiumCheck.setSelected(!Boolean.FALSE.equals(preferPremium));
-                oauthClientIdField.setText(oauthClientId == null ? "" : oauthClientId.toString());
-                oauthTenantField.setText(oauthTenant == null ? "consumers" : oauthTenant.toString());
             });
         });
     }
 
-    private void saveGlobalUserSettings(boolean preferPremium) {
+    private void saveGlobalUserSettings() {
         String username = usernameField.getText().trim();
         if (!isValidMinecraftUsername(username)) {
             JOptionPane.showMessageDialog(this,
@@ -1463,9 +1506,9 @@ public final class LauncherFrame extends JFrame {
         runAsync(() -> {
             apiClient.setGlobalUserSettings(
                     username,
-                    preferPremium,
-                    oauthClientIdField.getText().trim(),
-                    oauthTenantField.getText().trim()
+                    true,
+                    "",
+                    ""
             );
             SwingUtilities.invokeLater(() -> appendOutput("[Config] Nickname global guardado: " + username));
         });
@@ -1527,9 +1570,7 @@ public final class LauncherFrame extends JFrame {
                 if (!isValidMinecraftUsername(username)) {
                     username = "Steve";
                 }
-                String oauthClientId = oauthClientIdField.getText().trim();
-                String oauthTenant = oauthTenantField.getText().trim();
-                apiClient.setGlobalUserSettings(username, false, oauthClientId, oauthTenant);
+                apiClient.setGlobalUserSettings(username, false, "", "");
                 SwingUtilities.invokeLater(() -> {
                     appendOutput("[Premium] Microsoft bloquea esta cuenta para consentimiento. ");
                     appendOutput("[Premium] Se activo automaticamente modo offline para que puedas seguir usando el launcher.");
