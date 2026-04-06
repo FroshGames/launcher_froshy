@@ -62,6 +62,9 @@ public final class LauncherFrame extends JFrame {
     private final JList<MinecraftProfile> profilesEditorList = new JList<>(profilesModel);
     private final JTextField jvmArgsField  = new JTextField("-Xmx2G");
     private final JTextField gameArgsField = new JTextField("");
+    private JLabel modpackPathLabel;
+    private JLabel modpackCompatLabel;
+    private JPanel modpackPickerPanel;
     private final JTextArea  outputArea    = new JTextArea();
     private final JProgressBar progressBar = new JProgressBar(0, 100);
     private final JProgressBar phaseProgressBar = new JProgressBar(0, 100);
@@ -406,11 +409,23 @@ public final class LauncherFrame extends JFrame {
         addFormField(form, "Version:", versionField);
         addFormField(form, "Loader:", loaderTypeField);
         addFormField(form, "Ver. Loader:", loaderVersionField);
-        addFormField(form, "Modpack (.mrpack/.zip):", buildModpackPickerField());
+        
+        modpackPathLabel = new JLabel("Modpack (.mrpack/.zip):");
+        modpackPathLabel.setFont(new Font("Dialog", Font.PLAIN, 11)); modpackPathLabel.setForeground(C_TEXT);
+        modpackPickerPanel = buildModpackPickerField();
+        form.add(modpackPathLabel); form.add(modpackPickerPanel);
+
         addFormField(form, "JVM Args:", jvmArgsField);
         addFormField(form, "Game Args:", gameArgsField);
-        addFormField(form, "Compat. modpacks:", modpackCompatField);
-        
+
+        modpackCompatLabel = new JLabel("Compat. modpacks:");
+        modpackCompatLabel.setFont(new Font("Dialog", Font.PLAIN, 11)); modpackCompatLabel.setForeground(C_TEXT);
+        modpackCompatField.setBackground(new Color(0x08, 0x08, 0x22));
+        modpackCompatField.setForeground(C_TEXT);
+        modpackCompatField.setFont(new Font("Dialog", Font.PLAIN, 11));
+        modpackCompatField.setBorder(BorderFactory.createLineBorder(C_BORDER, 1));
+        form.add(modpackCompatLabel); form.add(modpackCompatField);
+
         formScroll = new JScrollPane(form);
         formScroll.setBorder(BorderFactory.createEmptyBorder());
         formScroll.getViewport().setBackground(new Color(0x08, 0x08, 0x1e));
@@ -735,6 +750,18 @@ public final class LauncherFrame extends JFrame {
             });
         });
     }
+    private String getJavaExecutable() {
+        String javaHome = System.getProperty("java.home");
+        java.nio.file.Path exe = java.nio.file.Paths.get(javaHome, "bin", "java");
+        if (!java.nio.file.Files.exists(exe)) {
+            exe = java.nio.file.Paths.get(javaHome, "bin", "java.exe");
+        }
+        if (java.nio.file.Files.exists(exe)) {
+            return exe.toAbsolutePath().toString();
+        }
+        return "java";
+    }
+
     private void upsertProfile() {
         boolean creating = editingProfileId == null;
         String name = nameField.getText().trim();
@@ -761,7 +788,7 @@ public final class LauncherFrame extends JFrame {
 
         List<String> effectiveGameArgs = splitArgs(gameArgsField.getText());
 
-        MinecraftProfile profile = new MinecraftProfile(effectiveId, name, "java", selectedComboValue(versionField, "1.20.1"),
+        MinecraftProfile profile = new MinecraftProfile(effectiveId, name, getJavaExecutable(), selectedComboValue(versionField, "1.20.1"),
                 splitArgs(jvmArgsField.getText()), effectiveGameArgs,
                 loaderType,
                 loaderVersion,
@@ -774,6 +801,23 @@ public final class LauncherFrame extends JFrame {
                 appendOutput((creating ? "Perfil creado: " : "Perfil actualizado: ") + saved.id());
                 refreshProfiles();
                 contentCards.show(contentStack, "HOME");
+
+                if (modpackMode) {
+                    UIManager.put("OptionPane.background", C_BG);
+                    UIManager.put("Panel.background", C_BG);
+                    UIManager.put("OptionPane.messageForeground", C_TEXT);
+                    UIManager.put("Button.background", C_MAGENTA);
+                    UIManager.put("Button.foreground", Color.WHITE);
+                    JOptionPane.showMessageDialog(LauncherFrame.this,
+                            "Modpack preparado para importacion.\n\nHaz clic en 'PLAY MINECRAFT' para comenzar la instalacion de mods y jugar.",
+                            "Importar Modpack",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    UIManager.put("OptionPane.background", null);
+                    UIManager.put("Panel.background", null);
+                    UIManager.put("OptionPane.messageForeground", null);
+                    UIManager.put("Button.background", null);
+                    UIManager.put("Button.foreground", null);
+                }
             });
         });
     }
@@ -965,6 +1009,11 @@ public final class LauncherFrame extends JFrame {
         applyFieldStyle(modpackCompatField, !manualMode);
         applyFieldStyle(jvmArgsField, true);
         applyFieldStyle(gameArgsField, true);
+
+        if (modpackPathLabel != null) modpackPathLabel.setVisible(!manualMode);
+        if (modpackPickerPanel != null) modpackPickerPanel.setVisible(!manualMode);
+        if (modpackCompatLabel != null) modpackCompatLabel.setVisible(!manualMode);
+        modpackCompatField.setVisible(!manualMode);
 
         if (saveBtn != null && editingProfileId == null) {
             saveBtn.setText(manualMode ? "CREAR INSTANCIA" : "IMPORTAR MODPACK");

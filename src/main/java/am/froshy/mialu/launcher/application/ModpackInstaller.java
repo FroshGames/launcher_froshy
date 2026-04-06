@@ -637,7 +637,7 @@ public final class ModpackInstaller {
 
         progress.accept(20, "Instalando Fabric " + loaderVersion + "...");
         runProcess(new ProcessBuilder(
-                "java", "-jar", installer.toAbsolutePath().toString(),
+                getJavaExecutable(), "-jar", installer.toAbsolutePath().toString(),
                 "client",
                 "-mcversion", mcVersion,
                 "-loader", loaderVersion,
@@ -673,7 +673,7 @@ public final class ModpackInstaller {
 
         progress.accept(20, "Instalando Quilt " + loaderVersion + "...");
         runProcess(new ProcessBuilder(
-                "java", "-jar", installer.toAbsolutePath().toString(),
+                getJavaExecutable(), "-jar", installer.toAbsolutePath().toString(),
                 "install", "client", mcVersion, loaderVersion,
                 "--install-dir=" + gameDir.toAbsolutePath(),
                 "--no-profile"
@@ -711,9 +711,21 @@ public final class ModpackInstaller {
 
     private void runInstaller(Path jar, Path gameDir, BiConsumer<Integer, String> progress,
             int lo, int hi) throws IOException, InterruptedException {
-        runProcess(new ProcessBuilder("java", "-jar", jar.toAbsolutePath().toString(), "--installClient")
+        runProcess(new ProcessBuilder(getJavaExecutable(), "-jar", jar.toAbsolutePath().toString(), "--installClient")
                 .redirectErrorStream(true)
                 .directory(gameDir.toFile()), progress, lo, hi);
+    }
+
+    private String getJavaExecutable() {
+        String javaHome = System.getProperty("java.home");
+        java.nio.file.Path exe = java.nio.file.Paths.get(javaHome, "bin", "java");
+        if (!Files.exists(exe)) {
+            exe = java.nio.file.Paths.get(javaHome, "bin", "java.exe");
+        }
+        if (Files.exists(exe)) {
+            return exe.toAbsolutePath().toString();
+        }
+        return "java";
     }
 
     private void runProcess(ProcessBuilder pb, BiConsumer<Integer, String> progress,

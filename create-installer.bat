@@ -38,7 +38,7 @@ jpackage --type exe ^
     --input %APP_DEST% ^
     --main-jar %MAIN_JAR% ^
     --main-class %MAIN_CLASS% ^
-    --name "mialulauncher" ^
+    --name "MialuLauncher" ^
     --app-version %APP_VERSION% ^
     --icon "src\main\resources\assets\icons\icon.ico" ^
     --win-dir-chooser ^
