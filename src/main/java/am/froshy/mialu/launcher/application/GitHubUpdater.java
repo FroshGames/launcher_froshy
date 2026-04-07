@@ -25,14 +25,24 @@ public class GitHubUpdater {
      */
     public static void checkForUpdatesAndInstall(String currentVersion) {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(GITHUB_API_URL))
                     .header("Accept", "application/vnd.github.v3+json")
-                    .GET()
-                    .build();
+                    .GET();
+
+            String token = System.getenv("GITHUB_TOKEN");
+            if (token != null && !token.isBlank()) {
+                requestBuilder.header("Authorization", "Bearer " + token);
+            }
+
+            HttpRequest request = requestBuilder.build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
+            if (response.statusCode() == 404) {
+                System.err.println("Error 404: Repositorio no encontrado o privado.");
+                javax.swing.JOptionPane.showMessageDialog(null, "Error verificando updates (HTTP 404).\nEl repositorio (" + GITHUB_API_URL + ") es privado o no existe.\nHázlo público o define la variable de entorno GITHUB_TOKEN.");
+                return;
+            } else if (response.statusCode() != 200) {
                 System.err.println("Error verificando updates: HTTP " + response.statusCode());
                 javax.swing.JOptionPane.showMessageDialog(null, "Error verificando updates (HTTP " + response.statusCode() + ").");
                 return;
@@ -58,7 +68,7 @@ public class GitHubUpdater {
                     String assetName = asset.get("name").asText().toLowerCase();
                     if (assetName.endsWith(".exe")) {
                         foundAsset = true;
-                        String downloadUrl = asset.get("browser_download_url").asText();
+                        String downloadUrl = asset.has("url") ? asset.get("url").asText() : asset.get("browser_download_url").asText();
                         javax.swing.JOptionPane.showMessageDialog(null, "Actualización " + latestVersion + " encontrada. Descargando ahora...");
                         downloadAndApplyUpdate(downloadUrl, assetName);
                         break;
@@ -80,7 +90,15 @@ public class GitHubUpdater {
         System.out.println("Descargando actualizacion desde: " + downloadUrl);
         Path updateFile = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
         
-        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET().build();
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET();
+
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token != null && !token.isBlank()) {
+            requestBuilder.header("Authorization", "Bearer " + token);
+            requestBuilder.header("Accept", "application/octet-stream");
+        }
+
+        HttpRequest request = requestBuilder.build();
         httpClient.send(request, HttpResponse.BodyHandlers.ofFile(updateFile));
 
         System.out.println("Actualizacion descargada. Preparando reemplazo...");

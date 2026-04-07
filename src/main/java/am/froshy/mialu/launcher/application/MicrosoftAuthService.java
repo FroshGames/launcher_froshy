@@ -67,7 +67,7 @@ public final class MicrosoftAuthService {
                 authFuture.complete(new MicrosoftSessionStatus(
                         true,
                         result.getMcProfile().getName(),
-                        result.getMcProfile().getId().toString(),
+                        result.getMcProfile().getId().toString().replace("-", ""),
                         session.minecraftExpiresAt(),
                         "Sesion premium activa"
                 ));
@@ -143,7 +143,7 @@ public final class MicrosoftAuthService {
             if (mcExpiresAt != null && mcExpiresAt.isAfter(Instant.now().plusSeconds(60))) {
                 return Optional.of(new LaunchAuth(
                         session.playerName(),
-                        session.playerUuid(),
+                        session.playerUuid().replace("-", ""),
                         session.minecraftAccessToken(),
                         session.xuid(),
                         session.minecraftExpiresAt()
@@ -170,10 +170,10 @@ public final class MicrosoftAuthService {
 
             return Optional.of(new LaunchAuth(
                     result.getMcProfile().getName(),
-                    result.getMcProfile().getId().toString(),
+                    result.getMcProfile().getId().toString().replace("-", ""),
                     result.getMcProfile().getMcToken().getAccessToken(),
                     null,
-                    Instant.now().plusMillis(result.getMcProfile().getMcToken().getExpireTimeMs())
+                    Instant.ofEpochMilli(result.getMcProfile().getMcToken().getExpireTimeMs())
             ));
         } catch (Exception ex) {
             clearSession();
@@ -198,9 +198,9 @@ public final class MicrosoftAuthService {
             AbstractStep<?, StepFullJavaSession.FullJavaSession> authStep,
             StepFullJavaSession.FullJavaSession result
     ) {
-        String uuid = result.getMcProfile().getId().toString();
+        String uuid = result.getMcProfile().getId().toString().replace("-", "");
         String name = result.getMcProfile().getName();
-        Instant mcExpiresAt = Instant.now().plusMillis(result.getMcProfile().getMcToken().getExpireTimeMs());
+        Instant mcExpiresAt = Instant.ofEpochMilli(result.getMcProfile().getMcToken().getExpireTimeMs());
         JsonObject json = authStep.toJson(result);
         this.session = new MicrosoftAuthStore.StoredMicrosoftSession(
                 null,
