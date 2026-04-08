@@ -6,7 +6,7 @@
 
     <groupId>am.froshy.mialu</groupId>
     <artifactId>launcher_mialu</artifactId>
-    <version>0.9.6</version>
+    <version>0.9.7</version>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>

@@ -43,15 +43,20 @@ import java.util.function.BiConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+/**
+ * Encargado de traer al equipo todas las dependencias necesarias de Mojang para que el juego arranque,
+ * incluyendo: Metadata Versions (JSONs), archivo principal Client.JAR, Bibliotecas nativas (Libraries) y Activos de Sonido/Modelos (Assets).
+ * Utiliza descarga en concurrencia masiva (Thread Pooling) para agilizar este proceso.
+ */
 public final class MojangVersionDownloader implements MinecraftVersionDownloader {
 
     private static final URI VERSION_MANIFEST_URI =
             URI.create("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json");
     private static final String MOJANG_PROFILE_API = "https://api.mojang.com/users/profiles/minecraft/";
     private static final String ASSETS_BASE = "https://resources.download.minecraft.net/";
-    private static final int MAX_RETRIES = 4;
-    private static final int LIB_DOWNLOAD_THREADS = 6;
-    private static final int ASSET_DOWNLOAD_THREADS = 12;
+    private static final int MAX_RETRIES = 5;
+    private static final int LIB_DOWNLOAD_THREADS = 16;
+    private static final int ASSET_DOWNLOAD_THREADS = 32;
 
     // OS detection ──────────────────────────────────────────────────────────
     private static final String OS;

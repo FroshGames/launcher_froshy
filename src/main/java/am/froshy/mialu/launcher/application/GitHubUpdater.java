@@ -13,6 +13,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
+/**
+ * Servicio encargado de gestionar las actualizaciones automáticas del Launcher_Mialu
+ * comunicándose directamente con la API pública o privada de GitHub Releases.
+ * Es capaz de reemplazar el archivo '.exe' ejecutándose transparentemente usando VBScript 
+ * o instaladores .exe si el Release provee uno .
+ */
 public class GitHubUpdater {
 
     private static final String GITHUB_API_URL = "https://api.github.com/repos/FroshGames/launcher_froshy/releases";
@@ -107,8 +113,10 @@ public class GitHubUpdater {
 
     private static void applyUpdate(Path updateFile, String fileName) throws IOException {
         if (fileName.contains("installer") || fileName.contains("setup")) {
-            // Es un instalador, solo lo ejecutamos
-            Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "\"\"", "\"" + updateFile.toAbsolutePath() + "\""});
+            // Es un instalador, solo lo ejecutamos sin cmd ventana
+            ProcessBuilder pb = new ProcessBuilder(updateFile.toAbsolutePath().toString());
+            pb.directory(updateFile.getParent().toFile());
+            pb.start();
             System.exit(0);
             return;
         }
@@ -118,18 +126,25 @@ public class GitHubUpdater {
         Path currentExeDir = Paths.get(".").toAbsolutePath().normalize();
         Path targetExe = currentExeDir.resolve("mialulauncher.exe");
 
-        // Crea un bat temporal para reemplazar el archivo mientras se cierra el launcher
+        // Crea un vbs temporal para reemplazar el archivo de forma oculta
+        Path vbsPath = Paths.get(System.getProperty("java.io.tmpdir"), "update_launcher.vbs");
         Path batPath = Paths.get(System.getProperty("java.io.tmpdir"), "update_launcher.bat");
+        
         String batContent = "@echo off\n"
                 + "ping 127.0.0.1 -n 3 > nul\n"
                 + "move /y \"" + updateFile.toAbsolutePath() + "\" \"" + targetExe.toAbsolutePath() + "\"\n"
                 + "start \"\" \"" + targetExe.toAbsolutePath() + "\"\n"
-                + "del \"%~f0\"";
+                + "del \"%~f0\"\n"
+                + "del \"" + vbsPath.toAbsolutePath() + "\"";
+
+        String vbsContent = "CreateObject(\"WScript.Shell\").Run \"\"\"\" & WScript.Arguments(0) & \"\"\"\", 0, False";
 
         Files.writeString(batPath, batContent);
+        Files.writeString(vbsPath, vbsContent);
 
-        // Ejecutar BAT y cerrar
-        Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "\"\"", "\"" + batPath.toAbsolutePath() + "\""});
+        // Ejecutar VBS que ejecuta el BAT oculto
+        ProcessBuilder pb = new ProcessBuilder("wscript.exe", vbsPath.toAbsolutePath().toString(), batPath.toAbsolutePath().toString());
+        pb.start();
         System.exit(0);
     }
 }

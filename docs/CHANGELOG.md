@@ -9,6 +9,12 @@ y el versionado sigue [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Novedades Recientes
+- Autenticación Obligatoria con Microsoft OAuth2
+- Descargas ultra-paralelizadas de assets nativos y mods
+- Updater VBS Stealth (Sin terminal)
+- Documentación JavaDoc base integrada en lógica clave.
+
 ### Planeado
 
 - [ ] AutenticaciÃ³n real de Microsoft OAuth2

@@ -25,6 +25,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Servicio encargado del manejo de Autenticación con Xbox/Microsoft.
+ * Administra el estado de la sesión local usando el token provisto
+ * por la librería MinecraftAuth, renovando el token automáticamente si expira
+ * antes de jugar en cualquier perfil en el archivo properties del usuario guardado de manera cifrada.
+ */
 public final class MicrosoftAuthService {
     // Metodo oficial recomendado para Minecraft Java: Device Code + Java title ID.
     private static final String DEFAULT_CLIENT_ID = MicrosoftConstants.JAVA_TITLE_ID;
