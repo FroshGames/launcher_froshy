@@ -1,4 +1,4 @@
-# 📚 Índice de Documentación - Launcher_Mialu v1.1
+# 📚 Índice de Documentación - launcher_Mialu v1.2
 
 **Versión:** 1.1 | **Última Actualización:** 31 de Marzo de 2026
 

@@ -13,6 +13,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
+/**
+ * Servicio encargado de gestionar las actualizaciones automáticas del Launcher_Mialu
+ * comunicándose directamente con la API pública o privada de GitHub Releases.
+ * Es capaz de reemplazar el archivo '.exe' ejecutándose transparentemente usando VBScript 
+ * o instaladores .exe si el Release provee uno .
+ */
 public class GitHubUpdater {
 
     private static final String GITHUB_API_URL = "https://api.github.com/repos/FroshGames/launcher_froshy/releases";
@@ -25,14 +31,24 @@ public class GitHubUpdater {
      */
     public static void checkForUpdatesAndInstall(String currentVersion) {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(GITHUB_API_URL))
                     .header("Accept", "application/vnd.github.v3+json")
-                    .GET()
-                    .build();
+                    .GET();
+
+            String token = System.getenv("GITHUB_TOKEN");
+            if (token != null && !token.isBlank()) {
+                requestBuilder.header("Authorization", "Bearer " + token);
+            }
+
+            HttpRequest request = requestBuilder.build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
+            if (response.statusCode() == 404) {
+                System.err.println("Error 404: Repositorio no encontrado o privado.");
+                javax.swing.JOptionPane.showMessageDialog(null, "Error verificando updates (HTTP 404).\nEl repositorio (" + GITHUB_API_URL + ") es privado o no existe.\nHázlo público o define la variable de entorno GITHUB_TOKEN.");
+                return;
+            } else if (response.statusCode() != 200) {
                 System.err.println("Error verificando updates: HTTP " + response.statusCode());
                 javax.swing.JOptionPane.showMessageDialog(null, "Error verificando updates (HTTP " + response.statusCode() + ").");
                 return;
@@ -58,7 +74,7 @@ public class GitHubUpdater {
                     String assetName = asset.get("name").asText().toLowerCase();
                     if (assetName.endsWith(".exe")) {
                         foundAsset = true;
-                        String downloadUrl = asset.get("browser_download_url").asText();
+                        String downloadUrl = asset.has("url") ? asset.get("url").asText() : asset.get("browser_download_url").asText();
                         javax.swing.JOptionPane.showMessageDialog(null, "Actualización " + latestVersion + " encontrada. Descargando ahora...");
                         downloadAndApplyUpdate(downloadUrl, assetName);
                         break;
@@ -80,7 +96,15 @@ public class GitHubUpdater {
         System.out.println("Descargando actualizacion desde: " + downloadUrl);
         Path updateFile = Paths.get(System.getProperty("java.io.tmpdir"), fileName);
         
-        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET().build();
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().uri(URI.create(downloadUrl)).GET();
+
+        String token = System.getenv("GITHUB_TOKEN");
+        if (token != null && !token.isBlank()) {
+            requestBuilder.header("Authorization", "Bearer " + token);
+            requestBuilder.header("Accept", "application/octet-stream");
+        }
+
+        HttpRequest request = requestBuilder.build();
         httpClient.send(request, HttpResponse.BodyHandlers.ofFile(updateFile));
 
         System.out.println("Actualizacion descargada. Preparando reemplazo...");
@@ -89,8 +113,10 @@ public class GitHubUpdater {
 
     private static void applyUpdate(Path updateFile, String fileName) throws IOException {
         if (fileName.contains("installer") || fileName.contains("setup")) {
-            // Es un instalador, solo lo ejecutamos
-            Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "\"\"", "\"" + updateFile.toAbsolutePath() + "\""});
+            // Es un instalador, solo lo ejecutamos sin cmd ventana
+            ProcessBuilder pb = new ProcessBuilder(updateFile.toAbsolutePath().toString());
+            pb.directory(updateFile.getParent().toFile());
+            pb.start();
             System.exit(0);
             return;
         }
@@ -100,18 +126,25 @@ public class GitHubUpdater {
         Path currentExeDir = Paths.get(".").toAbsolutePath().normalize();
         Path targetExe = currentExeDir.resolve("mialulauncher.exe");
 
-        // Crea un bat temporal para reemplazar el archivo mientras se cierra el launcher
+        // Crea un vbs temporal para reemplazar el archivo de forma oculta
+        Path vbsPath = Paths.get(System.getProperty("java.io.tmpdir"), "update_launcher.vbs");
         Path batPath = Paths.get(System.getProperty("java.io.tmpdir"), "update_launcher.bat");
+        
         String batContent = "@echo off\n"
                 + "ping 127.0.0.1 -n 3 > nul\n"
                 + "move /y \"" + updateFile.toAbsolutePath() + "\" \"" + targetExe.toAbsolutePath() + "\"\n"
                 + "start \"\" \"" + targetExe.toAbsolutePath() + "\"\n"
-                + "del \"%~f0\"";
+                + "del \"%~f0\"\n"
+                + "del \"" + vbsPath.toAbsolutePath() + "\"";
+
+        String vbsContent = "CreateObject(\"WScript.Shell\").Run \"\"\"\" & WScript.Arguments(0) & \"\"\"\", 0, False";
 
         Files.writeString(batPath, batContent);
+        Files.writeString(vbsPath, vbsContent);
 
-        // Ejecutar BAT y cerrar
-        Runtime.getRuntime().exec(new String[]{"cmd", "/c", "start", "\"\"", "\"" + batPath.toAbsolutePath() + "\""});
+        // Ejecutar VBS que ejecuta el BAT oculto
+        ProcessBuilder pb = new ProcessBuilder("wscript.exe", vbsPath.toAbsolutePath().toString(), batPath.toAbsolutePath().toString());
+        pb.start();
         System.exit(0);
     }
 }

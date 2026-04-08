@@ -10,6 +10,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.URI;
 
+/**
+ * Entorno de ejecución principal de la aplicación. 
+ * Combina y entrelaza distintos servicios tales como Configuración,
+ * Perfiles, Opciones Generales, Autorizaciones y un 
+ * Servidor API Interno HTTP para interactuar de forma REST
+ * con el Frontend visual del cliente.
+ */
 public final class LauncherRuntime {
     private final LauncherConfig config;
     private final InternalApiServer apiServer;

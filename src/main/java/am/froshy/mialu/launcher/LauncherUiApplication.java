@@ -6,6 +6,11 @@ import am.froshy.mialu.launcher.ui.LauncherFrame;
 import javax.swing.SwingUtilities;
 import java.awt.GraphicsEnvironment;
 
+/**
+ * Punto de entrada oficial con Interfaz Gráfica (GUI).
+ * Maneja el arranque de la API subyacente y delega
+ * la renderización y experiencia del usuario a {@link LauncherFrame}.
+ */
 public final class LauncherUiApplication {
 
     private LauncherUiApplication() {
