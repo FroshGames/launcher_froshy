@@ -7,6 +7,13 @@
     <groupId>am.froshy.mialu</groupId>
     <artifactId>launcher_mialu</artifactId>
     <version>0.9.7</version>
+    <description>Mialu Launcher Executable</description>
+    <inceptionYear>2026</inceptionYear>
+
+    <organization>
+        <name>FroshyCorp</name>
+        <url>https://github.com/froshy</url>
+    </organization>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -130,12 +137,16 @@
                             </jre>
                             <icon>src/main/resources/assets/icons/icon.ico</icon>
                             <versionInfo>
-                                <fileVersion>0.9.6.0</fileVersion>
-                                <txtFileVersion>0.9.6</txtFileVersion>
-                                <fileDescription>Mialu Launcher</fileDescription>
-                                <copyright>FroshyGames</copyright>
-                                <productVersion>0.9.6.0</productVersion>
-                                <txtProductVersion>0.9.6</txtProductVersion>
+                                <fileVersion>0.9.7.0</fileVersion>
+                                <txtFileVersion>0.9.7</txtFileVersion>
+                                <fileDescription>Mialu Launcher Executable</fileDescription>
+                                <copyright>FroshyGames 2026</copyright>
+                                <productVersion>0.9.7.0</productVersion>
+                                <txtProductVersion>0.9.7</txtProductVersion>
+                                <companyName>FroshyCorp</companyName>
+                                <productName>Mialu Launcher</productName>
+                                <internalName>mialulauncher</internalName>
+                                <originalFilename>mialulauncher.exe</originalFilename>
                             </versionInfo>
                         </configuration>
                     </execution>

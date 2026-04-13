@@ -10,7 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.net.URI;
 
-/**
+ /**
  * Entorno de ejecución principal de la aplicación. 
  * Combina y entrelaza distintos servicios tales como Configuración,
  * Perfiles, Opciones Generales, Autorizaciones y un 
