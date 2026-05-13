@@ -11,6 +11,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.GeneralPath;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.net.URI;
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -88,6 +90,7 @@ public final class LauncherFrame extends JFrame {
     private Point      dragOrigin;
     private JButton    deleteBtn;
     private JScrollPane formScroll;
+    private final Map<String, TexturePaint> textureCache = new ConcurrentHashMap<>();
     public LauncherFrame(InternalApiClient apiClient, int apiPort, String launcherVersion, Runnable onClose) {
         super();
         this.apiClient       = apiClient;
@@ -116,8 +119,9 @@ public final class LauncherFrame extends JFrame {
         setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         JPanel root = new JPanel(new BorderLayout(0, 0)) {
             @Override protected void paintComponent(Graphics g) {
-                g.setColor(C_BG);
-                g.fillRect(0, 0, getWidth(), getHeight());
+                Graphics2D g2 = (Graphics2D) g.create();
+                paintTexturedRect(g2, "root-bg", C_BG, new Color(0x10, 0x10, 0x2a), 6, 0, 0, getWidth(), getHeight());
+                g2.dispose();
             }
         };
         root.setOpaque(false);
@@ -153,10 +157,11 @@ public final class LauncherFrame extends JFrame {
     private JPanel buildTitleBar() {
         JPanel bar = new JPanel(new BorderLayout()) {
             @Override protected void paintComponent(Graphics g) {
-                g.setColor(new Color(0x05, 0x05, 0x16));
-                g.fillRect(0, 0, getWidth(), getHeight());
-                g.setColor(C_BORDER);
-                g.fillRect(0, getHeight() - 1, getWidth(), 1);
+                Graphics2D g2 = (Graphics2D) g.create();
+                paintTexturedRect(g2, "title-bg", new Color(0x05, 0x05, 0x16), new Color(0x15, 0x15, 0x2a), 5, 0, 0, getWidth(), getHeight());
+                g2.setColor(C_BORDER);
+                g2.fillRect(0, getHeight() - 1, getWidth(), 1);
+                g2.dispose();
             }
         };
         bar.setOpaque(false);
@@ -192,8 +197,9 @@ public final class LauncherFrame extends JFrame {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(getModel().isRollover() ? new Color(0x1a,0x1a,0x3a) : new Color(0x0a,0x0a,0x22));
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 4, 4);
+                Color base = getModel().isRollover() ? new Color(0x1a,0x1a,0x3a) : new Color(0x0a,0x0a,0x22);
+                paintTexturedRoundRect(g2, "title-btn-" + getText() + "-" + getModel().isRollover(), base,
+                        new Color(0x2a, 0x2a, 0x50), 5, 0, 0, getWidth(), getHeight(), 4, 4);
                 g2.setColor(new Color(0x40, 0x40, 0x66));
                 g2.setStroke(new BasicStroke(1f));
                 g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 4, 4);
@@ -247,7 +253,7 @@ public final class LauncherFrame extends JFrame {
         contentStack = new JPanel(contentCards) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
-                g2.setColor(new Color(0x06, 0x06, 0x18)); g2.fillRect(0,0,getWidth(),getHeight());
+                paintTexturedRect(g2, "content-bg", new Color(0x06, 0x06, 0x18), new Color(0x13, 0x13, 0x30), 6, 0, 0, getWidth(), getHeight());
                 drawCircuit(g2, getWidth(), getHeight()); g2.dispose();
             }
         };
@@ -302,8 +308,9 @@ public final class LauncherFrame extends JFrame {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(getModel().isRollover() ? new Color(0x18,0x18,0x38) : new Color(0x0e,0x0e,0x28));
-                g2.fillRoundRect(0,0,getWidth(),getHeight(),4,4);
+                Color base = getModel().isRollover() ? new Color(0x18,0x18,0x38) : new Color(0x0e,0x0e,0x28);
+                paintTexturedRoundRect(g2, "nav-" + getText() + "-" + getModel().isRollover(), base,
+                        new Color(0x26, 0x26, 0x45), 5, 0, 0, getWidth(), getHeight(), 4, 4);
                 g2.setColor(C_BORDER); g2.setStroke(new BasicStroke(1f));
                 g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,4,4);
                 g2.setColor(C_TEXT); g2.setFont(getFont()); FontMetrics fm = g2.getFontMetrics();
@@ -573,9 +580,11 @@ public final class LauncherFrame extends JFrame {
     private JPanel buildRightPanel() {
         JPanel panel = new JPanel() {
             @Override protected void paintComponent(Graphics g) {
-                g.setColor(C_SIDEBAR); g.fillRect(0,0,getWidth(),getHeight());
-                g.setColor(C_BORDER); g.fillRect(0,0,1,getHeight());
-                drawWave((Graphics2D)g, getWidth(), getHeight());
+                Graphics2D g2 = (Graphics2D) g.create();
+                paintTexturedRect(g2, "sidebar-bg", C_SIDEBAR, new Color(0x12, 0x12, 0x2c), 6, 0, 0, getWidth(), getHeight());
+                g2.setColor(C_BORDER); g2.fillRect(0,0,1,getHeight());
+                drawWave(g2, getWidth(), getHeight());
+                g2.dispose();
             }
         };
         panel.setOpaque(false); panel.setPreferredSize(new Dimension(110, 0));
@@ -615,8 +624,9 @@ public final class LauncherFrame extends JFrame {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(getModel().isRollover() ? new Color(0x1a,0x1a,0x3a) : new Color(0x0e,0x0e,0x28));
-                g2.fillRoundRect(0,0,getWidth(),getHeight(),8,8);
+                Color base = getModel().isRollover() ? new Color(0x1a,0x1a,0x3a) : new Color(0x0e,0x0e,0x28);
+                paintTexturedRoundRect(g2, "icon-btn-" + label + "-" + getModel().isRollover(), base,
+                        new Color(0x2c, 0x2c, 0x52), 6, 0, 0, getWidth(), getHeight(), 8, 8);
                 g2.setColor(C_BORDER); g2.setStroke(new BasicStroke(1f));
                 g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,8,8);
                 g2.setColor(C_TEXT); g2.setFont(getFont()); FontMetrics fm = g2.getFontMetrics();
@@ -651,15 +661,14 @@ public final class LauncherFrame extends JFrame {
                                 : new Color(r/7, gn/7, b/7);
                 int radius = isStrongCta ? 10 : 8;
                 if (isStrongCta) {
-                    GradientPaint gp = new GradientPaint(0, 0,
-                            new Color(Math.max(0, r / 8), Math.max(0, gn / 8), Math.max(0, b / 8)),
-                            getWidth(), getHeight(),
-                            new Color(Math.max(0, r / 4), Math.max(0, gn / 4), Math.max(0, b / 4)));
-                    g2.setPaint(gp);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+                    Color toneA = new Color(Math.max(0, r / 8), Math.max(0, gn / 8), Math.max(0, b / 8));
+                    Color toneB = new Color(Math.max(0, r / 4), Math.max(0, gn / 4), Math.max(0, b / 4));
+                    paintTexturedRoundRect(g2, "cta-" + getText() + "-" + getModel().isRollover() + "-" + getModel().isPressed(),
+                            blend(toneA, toneB, 0.5f), toneB, 6, 0, 0, getWidth(), getHeight(), radius, radius);
                 } else {
-                    g2.setColor(base);
-                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+                    paintTexturedRoundRect(g2, "btn-" + getText() + "-" + getModel().isRollover() + "-" + getModel().isPressed(),
+                            base, new Color(Math.min(255, r / 2 + 30), Math.min(255, gn / 2 + 30), Math.min(255, b / 2 + 30)),
+                            5, 0, 0, getWidth(), getHeight(), radius, radius);
                 }
 
                 g2.setColor(new Color(r,gn,b,isStrongCta ? 75 : 50)); g2.setStroke(new BasicStroke(isStrongCta ? 6f : 5f));
@@ -695,6 +704,70 @@ public final class LauncherFrame extends JFrame {
         g2.setColor(new Color(0, 200, 240, 55));
         int[] nx = {cx-90, cx+90, cx, cx}; int[] ny = {cy, cy, cy-70, cy+70};
         for (int i = 0; i < nx.length; i++) g2.fillOval(nx[i]-4, ny[i]-4, 8, 8);
+    }
+
+    private void paintTexturedRect(Graphics2D g2, String key, Color base, Color accent, int cellSize,
+                                   int x, int y, int w, int h) {
+        Paint oldPaint = g2.getPaint();
+        g2.setPaint(textureFor(key, base, accent, cellSize));
+        g2.fillRect(x, y, w, h);
+        g2.setPaint(oldPaint);
+    }
+
+    private void paintTexturedRoundRect(Graphics2D g2, String key, Color base, Color accent, int cellSize,
+                                        int x, int y, int w, int h, int arcW, int arcH) {
+        Paint oldPaint = g2.getPaint();
+        g2.setPaint(textureFor(key, base, accent, cellSize));
+        g2.fillRoundRect(x, y, w, h, arcW, arcH);
+        g2.setPaint(oldPaint);
+    }
+
+    private TexturePaint textureFor(String key, Color base, Color accent, int cellSize) {
+        String cacheKey = key + "#" + base.getRGB() + "#" + accent.getRGB() + "#" + cellSize;
+        return textureCache.computeIfAbsent(cacheKey, k -> {
+            int size = Math.max(4, cellSize);
+            BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D tg = img.createGraphics();
+            tg.setColor(base);
+            tg.fillRect(0, 0, size, size);
+
+            int seed = Math.abs(k.hashCode());
+            for (int i = 0; i < size; i++) {
+                int colShift = (seed + i * 17) % 45 - 22;
+                tg.setColor(shiftColor(base, colShift));
+                tg.drawLine(0, i, size, i);
+            }
+
+            tg.setColor(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 38));
+            tg.drawLine(0, 0, size, size);
+            tg.drawLine(size - 1, 0, 0, size - 1);
+            tg.dispose();
+            return new TexturePaint(img, new Rectangle(0, 0, size, size));
+        });
+    }
+
+    private Color shiftColor(Color color, int shift) {
+        return new Color(
+                clamp(color.getRed() + shift),
+                clamp(color.getGreen() + shift),
+                clamp(color.getBlue() + shift),
+                color.getAlpha()
+        );
+    }
+
+    private Color blend(Color a, Color b, float ratio) {
+        float clamped = Math.max(0f, Math.min(1f, ratio));
+        float inv = 1f - clamped;
+        return new Color(
+                clamp(Math.round(a.getRed() * inv + b.getRed() * clamped)),
+                clamp(Math.round(a.getGreen() * inv + b.getGreen() * clamped)),
+                clamp(Math.round(a.getBlue() * inv + b.getBlue() * clamped)),
+                clamp(Math.round(a.getAlpha() * inv + b.getAlpha() * clamped))
+        );
+    }
+
+    private int clamp(int value) {
+        return Math.max(0, Math.min(255, value));
     }
     private void drawWave(Graphics2D g2, int w, int h) {
         int startY = h - 88;
